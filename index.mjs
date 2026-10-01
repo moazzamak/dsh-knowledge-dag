@@ -1,5 +1,5 @@
 /**
- * Host half of `dsh-knowledge-dag`: the `knowledge_dag` tool, plus the two
+ * Host half of `dsh-knowledge-dag`: the `knowledge_dag` tool, plus the three
  * browser routes the client half reads.
  *
  * Three rules, each learned from the voice plugin in this same repository
@@ -22,7 +22,7 @@
  * (the voice plugin's routes are the proof: `req.method`, `req.headers`,
  * `req.url`, and `res.statusCode`/`res.end()`). Express-style
  * `request.query`/`response.status().json()` do not exist here and throw
- * on first call, which is exactly what the previous version did.
+ * on first call.
  *
  * The invariants are NOT reimplemented here. Validation lives in
  * `tools/research_graph.py` (CG-MoE) and is enforced by its suite; this
@@ -42,11 +42,14 @@ export const inject = ['tools', 'fs']
 export const ROUTE = '/dsh-knowledge-dag'
 export const DAG_TOOL_NAME = 'knowledge_dag'
 
+/** Node ids are file stems; anything else is a traversal attempt. */
+const ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i
+
 /**
  * Where a store's nodes are and where its rendered pages are.
  *
- * `stores` holds further stores behind the same four operations, so the
- * model's knowledge base is read the way the research record is rather than
+ * `stores` holds further stores behind the same operations, so the model's
+ * knowledge base is read the way the research record is rather than
  * through a second tool. The default store stays what it was, so a profile
  * that configures nothing behaves as before.
  */
@@ -140,6 +143,14 @@ async function loadNodes(ctx, config, name) {
     .localeCompare(String(right.id ?? '')))
 }
 
+/** One node file by id, without loading the whole store. */
+async function loadNode(ctx, config, name, id) {
+  const where = config.pick(name)
+  if (!where) return { noStore: true }
+  const node = await readJson(ctx, `${where.store}/${id}.json`)
+  return { node: { id, ...node } }
+}
+
 function oneLine(node) {
   for (const field of ['question', 'title', 'mechanism', 'statement']) {
     if (node[field]) return String(node[field])
@@ -164,8 +175,15 @@ function frontier(nodes) {
     .map((node) => ({
       id: node.id,
       title: oneLine(node),
+      status: node.status,
+      track: node.track,
+      question: node.question ?? '',
       prediction: node.prediction ?? '',
       falsifier: node.falsifier ?? '',
+      measurement: node.measurement ?? '',
+      costTier: node.cost_tier ?? '',
+      decisionMenu: node.decision_menu ?? {},
+      lineage: node.lineage ?? [],
     }))
 }
 
@@ -185,6 +203,15 @@ function queryOf(req) {
   return new Map(new URLSearchParams(raw.slice(at + 1)))
 }
 
+/** The GET-only guard every route shares. */
+function getOnly(req, res) {
+  if (req.method === 'GET') return false
+  res.statusCode = 405
+  res.setHeader('allow', 'GET')
+  res.end()
+  return true
+}
+
 function registerRoute(ctx, config) {
   // The browser-trust fence the voice plugin's routes taught us about: an
   // untrusted request is answered with the carrier's own rejection status
@@ -202,17 +229,14 @@ function registerRoute(ctx, config) {
   // Exact routes only: the carrier matches literal paths, and the node id
   // travels as a query parameter (`?id=...`) rather than a path segment,
   // because a `:param` route kind is not part of this contract.
+
+  // The whole board: every node, compact, for filters and counts.
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: `${ROUTE}/graph`,
     handler: async (req, res) => {
       if (rejected(req, res)) return
-      if (req.method !== 'GET') {
-        res.statusCode = 405
-        res.setHeader('allow', 'GET')
-        res.end()
-        return
-      }
+      if (getOnly(req, res)) return
       const name = queryOf(req).get('store') ?? ''
       const nodes = await loadNodes(ctx, config, name)
       if (!nodes) {
@@ -229,21 +253,47 @@ function registerRoute(ctx, config) {
     },
   }))
 
+  // The frontier: what is open or running, with the prediction, the
+  // falsifier and the decision menu for each — the board a researcher (or
+  // a model) steers from.
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: `${ROUTE}/frontier`,
+    handler: async (req, res) => {
+      if (rejected(req, res)) return
+      if (getOnly(req, res)) return
+      const name = queryOf(req).get('store') ?? ''
+      const nodes = await loadNodes(ctx, config, name)
+      if (!nodes) {
+        sendJson(res, 404, { error: `no such store ${name}` })
+        return
+      }
+      sendJson(res, 200, {
+        store: config.pick(name).store,
+        name: name || 'research',
+        nodes: frontier(nodes),
+      })
+    },
+  }))
+
+  // One node: the full structured body (story, decision menu, outcome,
+  // lineage, numbers) plus the library-generated markdown page, so the
+  // view and the record cannot disagree about what a node says.
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: `${ROUTE}/node`,
     handler: async (req, res) => {
       if (rejected(req, res)) return
-      if (req.method !== 'GET') {
-        res.statusCode = 405
-        res.setHeader('allow', 'GET')
-        res.end()
-        return
-      }
-      const id = queryOf(req).get('id') ?? ''
-      const name = queryOf(req).get('store') ?? ''
+      if (getOnly(req, res)) return
+      const query = queryOf(req)
+      const id = query.get('id') ?? ''
+      const name = query.get('store') ?? ''
       if (id === '') {
         sendJson(res, 400, { error: 'the id query parameter is required' })
+        return
+      }
+      if (!ID_PATTERN.test(id)) {
+        sendJson(res, 400, { error: 'malformed node id' })
         return
       }
       const where = config.pick(name)
@@ -251,15 +301,22 @@ function registerRoute(ctx, config) {
         sendJson(res, 404, { error: `no such store ${name}` })
         return
       }
-      // The page is generated by the library, so the view and the record
-      // cannot disagree about what a node says.
+      let node
       try {
-        const page = await ctx.fs.resolve(`${where.pages}/${id}.md`)
-        const markdown = await ctx.fs.readText(page)
-        sendJson(res, 200, { id, markdown })
+        node = (await loadNode(ctx, config, name, id)).node
       } catch {
         sendJson(res, 404, { error: `no such node ${id}` })
+        return
       }
+      let markdown = null
+      try {
+        const page = await ctx.fs.resolve(`${where.pages}/${id}.md`)
+        markdown = await ctx.fs.readText(page)
+      } catch {
+        // A node without a page is still a node; the view degrades to the
+        // structured body alone.
+      }
+      sendJson(res, 200, { id, node, markdown })
     },
   }))
 }

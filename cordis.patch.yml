@@ -1,0 +1,11 @@
+# The bundle patch: one row, the knowledge DAG.
+#
+# The store is the only setting. The adapter behind it takes a path
+# and nothing else, so a second source (the model's own knowledge
+# base) is another path rather than another plugin.
+- insert:
+    - id: knowledge-dag
+      name: dsh-knowledge-dag
+      config:
+        # Relative to the workspace the harness opens.
+        store: analysis/graph/nodes

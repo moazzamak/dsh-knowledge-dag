@@ -1,0 +1,38 @@
+{
+  "name": "dsh-knowledge-dag",
+  "version": "0.1.0",
+  "description": "Show a research graph in the DeepSeek Harness: the questions, what they derive from, what they rest on and what they ended in, with a plain-English page per node. Generic over any node store, so the model's knowledge base can be a second source.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "bundle",
+    "knowledge",
+    "graph",
+    "dag",
+    "research"
+  ],
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.cjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "client.cjs",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

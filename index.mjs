@@ -77,15 +77,19 @@ export const DAG_PARAMETERS = {
   properties: {
     operation: {
       type: 'string',
-      enum: ['list', 'show', 'frontier'],
+      enum: ['list', 'show', 'frontier', 'analogs'],
       description:
         'list every node with its kind, track, status and verdict; show one ' +
         'node by id; frontier lists what is open or running, with the ' +
-        'prediction and the falsifier for each',
+        'prediction and the falsifier for each; analogs finds nodes whose ' +
+        'STRUCTURE matches one node (same relational shape: prediction, ' +
+        'falsifier, decision menu, measured numbers, lineage) while their ' +
+        'surface (track, topic) differs — Gentner structure-mapping: good ' +
+        'analogies transfer relations, not topics',
     },
     id: {
       type: 'string',
-      description: 'the node id, required for the show operation',
+      description: 'the node id, required for the show and analogs operations',
     },
     store: {
       type: 'string',
@@ -187,6 +191,174 @@ function frontier(nodes) {
     }))
 }
 
+// ---------------------------------------------------------------------------
+// Structural analogs — Gentner structure-mapping over the node store.
+//
+// "Good analogies transfer RELATIONAL structure, not surface topic." So a
+// node's SIGNATURE here is built from its relational shape only:
+//
+//   - its role and fate in the record (kind, status, verdict)
+//   - the shape of its registered uncertainty: whether it carries a
+//     prediction, a falsifier, a measurement plan, a cost tier, and the
+//     interrogative FORM of its question (whether / what / how / why) —
+//     the type of the unknown, never its words
+//   - the shape of its decision space (menu option count)
+//   - the shape of its evidence (story beats present, outcome numbers)
+//   - its lineage topology (in-degree, ancestry depth, whether its parents
+//     come from another track)
+//
+// Its SURFACE — the track it lives on and the words of its title — is
+// deliberately excluded from the signature and used only to PENALISE
+// surface-similar pairs, because a match that is merely topical is not an
+// analogy. This is the registered route (a) (structure, CPU-instant);
+// embedding proximity (b) and teacher-proposed bridges (c) can re-rank it.
+// The measured LEVEL is named, per the M3 caveat: node-record structure.
+// ---------------------------------------------------------------------------
+
+/** Bucket a count into a small ordinal, so magnitude does not dominate. */
+function bucket(count) {
+  if (count <= 0) return '0'
+  if (count === 1) return '1'
+  if (count === 2) return '2'
+  if (count <= 5) return 'few'
+  return 'many'
+}
+
+/** The interrogative form of the question — the type of the unknown. */
+function questionForm(node) {
+  const question = String(node.question ?? node.title ?? '').toLowerCase()
+  if (question.startsWith('whether')) return 'whether'
+  if (/^(does|do|is|are|can|will|would|has|have)\b/.test(question)) return 'whether'
+  if (/^(what|which|who)\b/.test(question)) return 'what'
+  if (/^how\b/.test(question)) return 'how'
+  if (/^why\b/.test(question)) return 'why'
+  return 'other'
+}
+
+/**
+ * Build the structural signature token set for every node at once.
+ *
+ * Lineage needs the parent records, so signatures are computed over the
+ * whole store in one pass and returned as a Map keyed by node id.
+ */
+function structuralSignatures(nodes) {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const depthCache = new Map()
+
+  /** Ancestry depth, cycle-safe: the longest acyclic parent chain. */
+  const depth = (id, seen = new Set()) => {
+    if (depthCache.has(id)) return depthCache.get(id)
+    if (seen.has(id)) return 0
+    seen.add(id)
+    const node = byId.get(id)
+    let value = 0
+    if (node !== undefined) {
+      let best = 0
+      for (const parent of node.lineage ?? []) {
+        best = Math.max(best, depth(parent, seen))
+      }
+      value = best + 1
+    }
+    seen.delete(id)
+    depthCache.set(id, value)
+    return value
+  }
+
+  const signatures = new Map()
+  for (const node of nodes) {
+    const tokens = new Set()
+    tokens.add(`kind:${node.kind ?? '?'}`)
+    tokens.add(`status:${node.status ?? '?'}`)
+    const verdict = (node.outcome ?? {}).verdict
+    if (verdict) tokens.add(`verdict:${verdict}`)
+    tokens.add(`form:${questionForm(node)}`)
+    if (node.prediction) tokens.add('predicts')
+    if (node.falsifier) tokens.add('falsifiable')
+    if (node.measurement) tokens.add('measured-plan')
+    if (node.cost_tier) tokens.add(`cost:${node.cost_tier}`)
+    tokens.add(`menu:${bucket(Object.keys(node.decision_menu ?? {}).length)}`)
+    const numbers = Object.keys((node.outcome ?? {}).numbers ?? {}).length
+    tokens.add(`numbers:${bucket(numbers)}`)
+    const story = node.story ?? {}
+    tokens.add(`story:${bucket(['investigating', 'assumed', 'found', 'means']
+      .filter((beat) => story[beat]).length)}`)
+    if (node.displacement) tokens.add('displaces')
+    tokens.add(`artifacts:${bucket((node.artifacts ?? []).length)}`)
+    const parents = node.lineage ?? []
+    tokens.add(`parents:${bucket(parents.length)}`)
+    tokens.add(`depth:${bucket(depth(node.id))}`)
+    if (parents.some((parent) => byId.get(parent)?.track !== node.track)) {
+      tokens.add('cross-track-lineage')
+    }
+    if (parents.length > 0) tokens.add('derives')
+    signatures.set(node.id, tokens)
+  }
+  return signatures
+}
+
+/** Dice coefficient over two token sets: 2|A∩B| / (|A|+|B|). */
+function dice(a, b) {
+  let shared = 0
+  for (const token of a) if (b.has(token)) shared += 1
+  return (2 * shared) / (a.size + b.size)
+}
+
+/** Title-word Jaccard, lower-cased, the surface term. */
+function titleJaccard(a, b) {
+  const words = (text) => new Set(String(text ?? '')
+    .toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3))
+  const left = words(a)
+  const right = words(b)
+  if (left.size === 0 || right.size === 0) return 0
+  let shared = 0
+  for (const word of left) if (right.has(word)) shared += 1
+  return shared / (left.size + right.size - shared)
+}
+
+/**
+ * Rank one node's structural analogs across the whole store.
+ *
+ * Score = structural similarity (Dice over signatures) MINUS a surface
+ * penalty (same track, shared title words), so the pairs that surface are
+ * structurally close AND topically distant — the creative-analog shape.
+ * Lineage relatives are excluded: an ancestor is inheritance, not analogy.
+ */
+function findAnalogs(nodes, signatures, id, limit = 8) {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const self = byId.get(id)
+  if (self === undefined) return null
+  const family = new Set([id, ...(self.lineage ?? [])])
+  for (const node of nodes) {
+    if ((node.lineage ?? []).includes(id)) family.add(node.id)
+  }
+  const mine = signatures.get(id)
+  const ranked = []
+  for (const node of nodes) {
+    if (family.has(node.id)) continue
+    const theirs = signatures.get(node.id)
+    const structural = dice(mine, theirs)
+    if (structural < 0.5) continue
+    const sameTrack = node.track === self.track ? 1 : 0
+    const surface = sameTrack + titleJaccard(self.title, node.title)
+    const score = structural - 0.5 * surface
+    if (score <= 0) continue
+    const shared = [...mine].filter((token) => theirs.has(token))
+    ranked.push({
+      id: node.id,
+      title: oneLine(node),
+      kind: node.kind,
+      status: node.status,
+      verdict: (node.outcome ?? {}).verdict ?? '',
+      track: node.track,
+      score: Math.round(score * 1000) / 1000,
+      structural: Math.round(structural * 1000) / 1000,
+      sharedStructure: shared,
+      sameTrack: sameTrack === 1,
+    })
+  }
+  return ranked.sort((a, b) => b.score - a.score).slice(0, limit)
+}
+
 /** Write one JSON answer the carrier's way: status, headers, end. */
 function sendJson(res, status, payload) {
   res.statusCode = status
@@ -276,6 +448,40 @@ function registerRoute(ctx, config) {
     },
   }))
 
+  // Structural analogs for one node: the Gentner route. One route answers
+  // "which other node has this one's SHAPE on a different surface".
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: `${ROUTE}/analogs`,
+    handler: async (req, res) => {
+      if (rejected(req, res)) return
+      if (getOnly(req, res)) return
+      const query = queryOf(req)
+      const id = query.get('id') ?? ''
+      const name = query.get('store') ?? ''
+      if (id === '') {
+        sendJson(res, 400, { error: 'the id query parameter is required' })
+        return
+      }
+      if (!ID_PATTERN.test(id)) {
+        sendJson(res, 400, { error: 'malformed node id' })
+        return
+      }
+      const nodes = await loadNodes(ctx, config, name)
+      if (!nodes) {
+        sendJson(res, 404, { error: `no such store ${name}` })
+        return
+      }
+      const signatures = structuralSignatures(nodes)
+      const analogs = findAnalogs(nodes, signatures, id)
+      if (analogs === null) {
+        sendJson(res, 404, { error: `no such node ${id}` })
+        return
+      }
+      sendJson(res, 200, { id, store: name || 'research', analogs })
+    },
+  }))
+
   // One node: the full structured body (story, decision menu, outcome,
   // lineage, numbers) plus the library-generated markdown page, so the
   // view and the record cannot disagree about what a node says.
@@ -336,6 +542,15 @@ function registerTool(ctx, config) {
       }
       if (args.operation === 'frontier') {
         return { operation: 'frontier', nodes: frontier(nodes) }
+      }
+      if (args.operation === 'analogs') {
+        if (!args.id) return { error: 'the analogs operation requires an id' }
+        const signatures = structuralSignatures(nodes)
+        const analogs = findAnalogs(nodes, signatures, args.id)
+        if (analogs === null) {
+          return { operation: 'analogs', id: args.id, error: 'no such node' }
+        }
+        return { operation: 'analogs', id: args.id, analogs }
       }
       if (args.operation === 'show') {
         const found = nodes.find((node) => node.id === args.id)

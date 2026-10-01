@@ -81,6 +81,9 @@ window.__ModuleLoader__.load({
       numbers: 'dsh-dag-numbers',
       lineage: 'dsh-dag-lineage',
       chip: 'dsh-dag-chip',
+      analog: 'dsh-dag-analog',
+      analogHead: 'dsh-dag-analog-head',
+      analogScore: 'dsh-dag-analog-score',
       note: 'dsh-dag-note',
       page: 'dsh-dag-page',
       story: 'dsh-dag-story',
@@ -196,6 +199,14 @@ window.__ModuleLoader__.load({
   border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
 }
 .${CLASS.chip}:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+.${CLASS.analog} {
+  display: flex; flex-direction: column; gap: 4px; padding: 7px 9px;
+  border-radius: 8px; cursor: pointer; text-align: left;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+}
+.${CLASS.analog}:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+.${CLASS.analogHead} { display: flex; align-items: baseline; gap: 8px; }
+.${CLASS.analogScore} { margin-left: auto; font-size: 11px; opacity: 0.6; font-variant-numeric: tabular-nums; }
 .${CLASS.note} { opacity: 0.75; padding: 8px 12px; }
 .${CLASS.page} { white-space: pre-wrap; line-height: 1.5; font-size: 12.5px; opacity: 0.9; }
 .${CLASS.story} { display: flex; flex-direction: column; gap: 8px; }
@@ -272,6 +283,70 @@ window.__ModuleLoader__.load({
         .filter(([key]) => !order.includes(key))
         .map(([key, n]) => `${n} ${key}`)
       return `${nodes.length} nodes · ${[...known, ...other].join(' · ')}`
+    }
+
+    // --- the structural-analogs section --------------------------------------
+
+    /**
+     * Gentner structure-mapping in the UI: for this node, the nodes with the
+     * same RELATIONAL shape on a different surface. Loaded lazily because it
+     * is a whole-store comparison, and rendered with the shared structure
+     * spelled out — the analogy is the shared relations, not a score alone.
+     */
+    function AnalogsSection({ id, store, onOpen }) {
+      const [shown, setShown] = React.useState(false)
+      const [state, setState] = React.useState(null)
+
+      React.useEffect(() => {
+        if (!shown) return
+        let alive = true
+        setState({ loading: true })
+        getJson(`/analogs?id=${encodeURIComponent(id)}`, store)
+          .then((answer) => { if (alive) setState({ analogs: answer.analogs ?? [] }) })
+          .catch((error) => { if (alive) setState({ error: String(error.message ?? error) }) })
+        return () => { alive = false }
+      }, [shown, id, store])
+
+      if (!shown) {
+        return React.createElement('button', {
+          className: CLASS.back,
+          onClick: () => setShown(true),
+        }, 'find structural analogs →')
+      }
+      if (state === null || state.loading) {
+        return React.createElement('div', { className: CLASS.note }, 'comparing structures…')
+      }
+      if (state.error !== undefined) {
+        return React.createElement('div', { className: CLASS.note }, state.error)
+      }
+      const analogs = state.analogs ?? []
+      if (analogs.length === 0) {
+        return React.createElement('div', { className: CLASS.note },
+          'no analogs: nothing else shares this node’s relational shape')
+      }
+      return Section({ title: 'Structural analogs — same shape, different domain' },
+        analogs.map((analog) => React.createElement('div', {
+          key: analog.id,
+          className: CLASS.analog,
+          onClick: () => onOpen(analog.id),
+        },
+          React.createElement('div', { className: CLASS.analogHead },
+            React.createElement('b', null, analog.title || analog.id),
+            React.createElement('span', { className: CLASS.analogScore },
+              `structure ${Math.round(analog.structural * 100)}%`),
+          ),
+          React.createElement('div', { className: CLASS.cardMeta },
+            [analog.id, analog.kind, analog.track, analog.status, analog.verdict]
+              .filter(Boolean).join(' · ')),
+          React.createElement('div', { className: CLASS.badges },
+            ...analog.sharedStructure.slice(0, 8).map((token) =>
+              React.createElement('span', { key: token, className: CLASS.badge }, token)),
+            analog.sameTrack
+              ? React.createElement('span', {
+                  key: 'surface', className: CLASS.badge, 'data-tone': 'warn',
+                }, 'same track — topical, not structural')
+              : null),
+        )))
     }
 
     // --- the node detail page -------------------------------------------------
@@ -375,6 +450,7 @@ window.__ModuleLoader__.load({
                     React.createElement('b', null, option),
                     React.createElement('div', { className: CLASS.menuArrow }, `→ ${consequence}`)))))
           : null,
+        AnalogsSection({ id, store, onOpen }),
         outcome.verdict || outcome.decision || outcome.reason
           ? Section({ title: 'Measured outcome' },
               React.createElement('div', { className: CLASS.story },

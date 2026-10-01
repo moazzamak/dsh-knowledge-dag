@@ -12,6 +12,12 @@
  *   Cordis resolves an absent injected service leniently, so a shell call
  *   registers fine and fails on first use. Everything here reads files
  *   through `ctx.fs`.
+ * - A registered tool must declare `output: { schema, render }`. The
+ *   registry rejects a definition without it AT BOOT, validates every
+ *   execute() result against the schema at run time, and shows the model
+ *   whatever `render` returns. The schema stays in the wire's supported
+ *   subset (type/properties/items + annotations) and leaves node bodies
+ *   open, because their fields are the store's to define.
  * - Do not read the browser carrier during `apply`. Reading it there sees
  *   `undefined`, which is the bug that made the voice plugin's route
  *   silently never register. `ctx.inject(['webServer'], cb)` is the
@@ -160,6 +166,82 @@ export const DAG_PARAMETERS = {
     },
   },
   required: ['operation'],
+}
+
+/**
+ * The answer schema, in the registry's supported JSON-Schema subset. It is
+ * deliberately open — no `required`, no `additionalProperties: false` —
+ * because the four operations answer with different shapes and the node
+ * bodies are the store's to define. Every execute() result is validated
+ * against it at run time.
+ */
+export const DAG_OUTPUT = {
+  type: 'object',
+  description: 'one knowledge_dag answer: a board, a frontier, analogs, one node, or an error',
+  properties: {
+    operation: { type: 'string', description: 'the operation that produced this answer' },
+    id: { type: 'string', description: 'the node id the operation targeted' },
+    nodes: {
+      type: 'array',
+      items: { type: 'object' },
+    },
+    node: { type: 'object', description: 'the full node body, for the show operation' },
+    analogs: {
+      type: 'array',
+      items: { type: 'object' },
+    },
+    error: { type: 'string', description: 'why the operation could not answer' },
+  },
+}
+
+/**
+ * Render one answer as the text blocks the transcript shows. The registry
+ * calls this on every successful execute(): the value is what machines
+ * read, and this is what the model reads, so an answer that does not
+ * render is a tool that does not work.
+ */
+function renderAnswer(_args, value) {
+  const line = (node) => {
+    const verdict = node.verdict ? `, ${node.verdict}` : ''
+    return `- ${node.id ?? '?'} [${node.kind ?? '?'}] ` +
+      `(${node.track ?? '?'}${verdict}, ${node.status ?? '?'}): ${node.title ?? ''}`
+  }
+  const lines = []
+  if (typeof value.error === 'string' && value.error !== '') {
+    lines.push(`knowledge_dag could not answer: ${value.error}`)
+  } else if (value.operation === 'list') {
+    const nodes = value.nodes ?? []
+    lines.push(`Knowledge DAG board — ${nodes.length} node${nodes.length === 1 ? '' : 's'}`)
+    for (const node of nodes) lines.push(line(node))
+  } else if (value.operation === 'frontier') {
+    const nodes = value.nodes ?? []
+    lines.push(`Knowledge DAG frontier — ${nodes.length} open or running`)
+    for (const node of nodes) {
+      lines.push(line(node))
+      if (node.question) lines.push(`    question: ${node.question}`)
+      if (node.prediction) lines.push(`    prediction: ${node.prediction}`)
+      if (node.falsifier) lines.push(`    falsifier: ${node.falsifier}`)
+    }
+  } else if (value.operation === 'analogs') {
+    const analogs = value.analogs ?? []
+    lines.push(`Structural analogs of ${value.id ?? '?'} — ${analogs.length} found`)
+    analogs.forEach((analog, index) => {
+      lines.push(`${index + 1}. ${analog.id ?? '?'} (score ${analog.score ?? '?'}) ` +
+        `[${analog.kind ?? '?'}, ${analog.status ?? '?'}] ${analog.title ?? ''}`)
+      const shared = analog.sharedStructure
+      if (Array.isArray(shared) && shared.length > 0) {
+        lines.push(`   shared structure: ${shared.join(', ')}`)
+      }
+    })
+  } else if (value.operation === 'show') {
+    lines.push(`Node ${value.id ?? value.node?.id ?? '?'}`)
+    lines.push('```json')
+    lines.push(JSON.stringify(value.node, null, 2))
+    lines.push('```')
+  } else {
+    lines.push(JSON.stringify(value, null, 2))
+  }
+  return [{ type: 'text', text: lines.join('\n') }]
 }
 
 function describe() {
@@ -592,6 +674,10 @@ function registerTool(ctx, config) {
     name: DAG_TOOL_NAME,
     description: describe(),
     parameters: DAG_PARAMETERS,
+    output: {
+      schema: DAG_OUTPUT,
+      render: renderAnswer,
+    },
     execute: async (args) => {
       const nodes = await loadNodes(ctx, config, args.store)
       if (!nodes) {

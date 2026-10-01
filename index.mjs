@@ -53,7 +53,7 @@ const ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i
  * through a second tool. The default store stays what it was, so a profile
  * that configures nothing behaves as before.
  */
-export class Config {
+export class StoreConfig {
   constructor(options = {}) {
     this.store = options.store ?? 'analysis/graph/nodes'
     this.pages = options.pages ?? 'analysis/nodes'
@@ -70,6 +70,66 @@ export class Config {
       pages: found.pages ?? this.pages,
     }
   }
+}
+
+/**
+ * The row-config schema, in the Standard Schema protocol Cordis drives.
+ *
+ * Cordis `resolveConfig` calls `Config['~standard'].validate(config)`
+ * UNCONDITIONALLY whenever a plugin exports a `Config` — a class here reads
+ * as a schema, `Config['~standard']` is undefined, and `.validate` throws a
+ * TypeError that fails the whole fiber at boot: the row shows `failed`, no
+ * route registers, and the browser gets 404s that look like a missing graph.
+ * The runtime paths live in {@link StoreConfig}; this is only the schema.
+ */
+export const Config = {
+  '~standard': {
+    version: 1,
+    vendor: 'dsh-knowledge-dag',
+    /**
+     * Validate and default one raw row config.
+     * @param {unknown} value - the row's `config` value.
+     * @returns `{ value }` when valid, `{ issues }` otherwise.
+     */
+    validate(value) {
+      if (value !== undefined && (typeof value !== 'object' || value === null || Array.isArray(value))) {
+        return { issues: [{ message: 'knowledge-dag config must be an object' }] }
+      }
+      const input = value ?? {}
+      const issues = []
+      const text = (key, fallback) => {
+        const raw = input[key]
+        if (raw === undefined) return fallback
+        if (typeof raw !== 'string' || raw === '') {
+          issues.push({ message: `${key} must be a non-empty string` })
+          return fallback
+        }
+        return raw
+      }
+      const store = text('store', 'analysis/graph/nodes')
+      const pages = text('pages', 'analysis/nodes')
+      const rawStores = input.stores
+      let stores = {}
+      if (rawStores !== undefined) {
+        if (typeof rawStores !== 'object' || rawStores === null || Array.isArray(rawStores)) {
+          issues.push({ message: 'stores must be an object mapping a name to { store, pages }' })
+        } else {
+          for (const [name, entry] of Object.entries(rawStores)) {
+            if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+              issues.push({ message: `stores.${name} must be an object with store and pages` })
+              continue
+            }
+            stores[name] = {
+              store: typeof entry.store === 'string' && entry.store !== '' ? entry.store : store,
+              pages: typeof entry.pages === 'string' && entry.pages !== '' ? entry.pages : pages,
+            }
+          }
+        }
+      }
+      if (issues.length > 0) return { issues }
+      return { value: { ...input, store, pages, stores } }
+    },
+  },
 }
 
 export const DAG_PARAMETERS = {
@@ -565,7 +625,9 @@ function registerTool(ctx, config) {
 }
 
 export function apply(ctx, rawConfig = {}) {
-  const config = rawConfig instanceof Config ? rawConfig : new Config(rawConfig)
+  // `rawConfig` arrives already validated and defaulted by the row schema
+  // (a plain object); a StoreConfig is also accepted for direct callers.
+  const config = rawConfig instanceof StoreConfig ? rawConfig : new StoreConfig(rawConfig)
   registerTool(ctx, config)
   // Deferred: the route exists only where a browser can reach it, and the
   // row does not wait for one.

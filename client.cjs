@@ -2,39 +2,35 @@
  * Browser half of `dsh-knowledge-dag`, in the harness client-bundle format
  * (`window.__ModuleLoader__.load({ id, factory })`).
  *
- * A research-steering console, not just a viewer. The composer's tool row
- * gets one button; pressing it opens a full-height drawer with:
+ * A research-steering console that lives in the RIGHT PANE, as a real tab
+ * type beside Files / Terminal / Document — the same registration the
+ * shipped tabs use (`sidebarRightTabs`), so it gets a strip chip, a title,
+ * and the pane's own chrome. Two ways to open it:
  *
- *   - the BOARD: every node with kind/track/status/verdict, filterable by
- *     status and track, searchable, with live counts;
- *   - the FRONTIER: what is open or running, each with its prediction,
- *     falsifier, measurement and DECISION MENU — the "which path do we
- *     take" view this tool exists for;
- *   - a node DETAIL page rendered from the structured record: the story
- *     (investigating / assumed / found / means), the registered prediction
- *     and falsifier, the decision menu with what each choice implies, the
- *     measured outcome with its numbers, and lineage links that jump to
- *     the nodes this one derives from;
- *   - a store picker, because the same four operations read any node
- *     store — the research record today, the trained model's knowledge map
- *     tomorrow.
+ *   - a graph icon pinned to the TOP-RIGHT of the frame (a `shell.overlay`
+ *     entry, above every column), which opens the tab in one click;
+ *   - the pane's "+" guide menu lists "Knowledge graph".
  *
- * The node bodies and pages are fetched from the host half rather than
- * rebuilt here: the record already generates them, and a view that rendered
- * its own version would be free to disagree with the file a reader trusts.
+ * The panel itself: the BOARD (every node with kind/track/status/verdict,
+ * filterable, with live counts), the FRONTIER (what is open or running,
+ * each with its prediction, falsifier and decision menu — the steering
+ * view), and a node DETAIL page (story beats, decision menu with what each
+ * path implies, measured outcome with numbers, lineage links, and
+ * structural analogs). A store picker covers the model-knowledge store
+ * when one is configured.
  *
- * Wire-format rules, each one the voice plugin (`dsh-voice-input`) learned
- * the hard way, so this half follows them exactly:
+ * Node bodies and pages are fetched from the host half rather than rebuilt
+ * here: the record already generates them, and a view that rendered its
+ * own version would be free to disagree with the file a reader trusts.
  *
- * - The factory creates its OWN `var module = { exports: {} }`. There is no
- *   CommonJS wrapper around a factory, so referencing a bare `module`
- *   throws `ReferenceError` the moment the bundle is evaluated — which
- *   fails the client boot audit and takes the whole GUI down with it.
- * - The bundle exports `inject` and `apply`; the loader drives `apply(ctx)`.
- * - A slot name is NOT a service: `inject` declares only real services.
- *   `slots.inject(SLOT, ...)` is the mechanism that waits for the slot
- *   declaration. The drawer renders inside this bundle's own component
- *   tree, fixed-positioned so it escapes the tool row.
+ * Wire-format rules, each one learned the hard way in this repository:
+ *
+ * - The factory creates its OWN `var module = { exports: {} }` (no CommonJS
+ *   wrapper exists; a bare `module` reference kills the client boot).
+ * - The bundle exports `inject` + `apply`; the loader drives `apply(ctx)`.
+ * - Services must be DECLARED in `inject` before use: `sidebarRight` and
+ *   `sidebarRightTabs` are the right pane's cross-plugin faces, `layout`
+ *   opens the pane. A slot name is never a service.
  * - React comes from `require('react')` — the shared module table.
  *
  * @module dsh-knowledge-dag/client
@@ -50,17 +46,17 @@ window.__ModuleLoader__.load({
 
     /** Host routes; must match index.mjs (the node id travels as a query). */
     const ROUTE = '/dsh-knowledge-dag'
-    const SLOT = 'conversation.input.left'
-    const ENTRY_ID = 'knowledge-dag-graph'
+    /** The right-pane tab kind this bundle owns. */
+    const KIND = 'knowledge-dag'
+    const TYPE_ID = 'dsh-knowledge-dag.graph'
 
     const CLASS = {
-      root: 'dsh-dag-root',
-      button: 'dsh-dag-button',
-      drawer: 'dsh-dag-drawer',
+      trigger: 'dsh-dag-trigger',
+      triggerButton: 'dsh-dag-trigger-button',
+      panel: 'dsh-dag-panel',
       head: 'dsh-dag-head',
       tabs: 'dsh-dag-tabs',
       tab: 'dsh-dag-tab',
-      close: 'dsh-dag-close',
       controls: 'dsh-dag-controls',
       search: 'dsh-dag-search',
       select: 'dsh-dag-stores',
@@ -99,26 +95,26 @@ window.__ModuleLoader__.load({
     const toneOf = (value) => TONES[String(value ?? '').toLowerCase()] ?? 'neutral'
 
     const CSS = `
-.${CLASS.root} { display: inline-flex; }
-.${CLASS.button} {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%;
-  background: transparent; color: inherit; opacity: 0.75; cursor: pointer;
-  font-size: 11px;
+.${CLASS.trigger} {
+  position: fixed; top: 8px; right: 12px; z-index: 70;
+  display: inline-flex; align-items: center; gap: 6px;
 }
-.${CLASS.button}:hover { opacity: 1; background: color-mix(in srgb, currentColor 12%, transparent); }
-.${CLASS.button}[data-state='open'] { opacity: 1; }
-.${CLASS.drawer} {
-  position: fixed; top: 8px; right: 8px; bottom: 8px; z-index: 60;
-  width: min(920px, 96vw); display: flex; flex-direction: column;
-  border-radius: 10px; font-size: 13px;
-  background: var(--dsh-surface, #1c1c1f); color: inherit;
-  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
-  box-shadow: 0 12px 44px rgba(0, 0, 0, 0.45);
+.${CLASS.triggerButton} {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; border-radius: 8px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: inherit; opacity: 0.75; cursor: pointer;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+}
+.${CLASS.triggerButton}:hover { opacity: 1; background: color-mix(in srgb, currentColor 15%, transparent); }
+.${CLASS.triggerButton} svg { width: 17px; height: 17px; }
+.${CLASS.panel} {
+  display: flex; flex-direction: column; height: 100%; min-height: 0;
+  font-size: 13px; color: inherit;
 }
 .${CLASS.head} {
   display: flex; align-items: center; gap: 10px; flex: none;
-  padding: 8px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
 }
 .${CLASS.tabs} { display: inline-flex; gap: 4px; }
@@ -131,30 +127,24 @@ window.__ModuleLoader__.load({
   opacity: 1; border-color: color-mix(in srgb, currentColor 30%, transparent);
   background: color-mix(in srgb, currentColor 10%, transparent);
 }
-.${CLASS.close} {
-  margin-left: auto; padding: 2px 8px; border: 0; border-radius: 6px;
-  background: transparent; color: inherit; opacity: 0.6; cursor: pointer;
-  font-size: 15px;
-}
-.${CLASS.close}:hover { opacity: 1; }
+.${CLASS.counts} { margin-left: auto; font-size: 11px; opacity: 0.65; white-space: nowrap; }
 .${CLASS.controls} {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none;
-  padding: 6px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
 }
 .${CLASS.search} {
-  flex: 1 1 220px; min-width: 160px; padding: 4px 8px; font-size: 12px;
+  flex: 1 1 160px; min-width: 120px; padding: 4px 8px; font-size: 12px;
   border-radius: 6px; color: inherit;
   background: color-mix(in srgb, currentColor 6%, transparent);
   border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
 }
 .${CLASS.select} {
   padding: 4px 6px; font-size: 12px; border-radius: 6px; color: inherit;
-  background: transparent;
+  background: transparent; max-width: 40vw;
   border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
 }
-.${CLASS.counts} { font-size: 11px; opacity: 0.65; white-space: nowrap; }
-.${CLASS.list} { flex: 1; overflow: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.${CLASS.list} { flex: 1; overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
 .${CLASS.card} {
   display: flex; flex-direction: column; gap: 3px; padding: 7px 9px;
   border-radius: 8px; cursor: pointer; text-align: left;
@@ -164,7 +154,7 @@ window.__ModuleLoader__.load({
 .${CLASS.cardTitle} { font-weight: 550; }
 .${CLASS.cardMeta} { font-size: 11px; opacity: 0.65; }
 .${CLASS.prediction} { font-size: 12px; opacity: 0.8; }
-.${CLASS.detail} { flex: 1; overflow: auto; padding: 10px 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+.${CLASS.detail} { flex: 1; overflow: auto; padding: 10px 14px 20px; display: flex; flex-direction: column; gap: 12px; }
 .${CLASS.badges} { display: flex; flex-wrap: wrap; gap: 5px; }
 .${CLASS.badge} {
   padding: 1px 8px; border-radius: 999px; font-size: 11px;
@@ -187,7 +177,7 @@ window.__ModuleLoader__.load({
 }
 .${CLASS.menuArrow} { opacity: 0.7; font-size: 12px; }
 .${CLASS.numbers} {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 4px; font-size: 12px;
 }
 .${CLASS.numbers} div { display: flex; gap: 6px; }
@@ -207,7 +197,7 @@ window.__ModuleLoader__.load({
 .${CLASS.analog}:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
 .${CLASS.analogHead} { display: flex; align-items: baseline; gap: 8px; }
 .${CLASS.analogScore} { margin-left: auto; font-size: 11px; opacity: 0.6; font-variant-numeric: tabular-nums; }
-.${CLASS.note} { opacity: 0.75; padding: 8px 12px; }
+.${CLASS.note} { opacity: 0.75; padding: 8px 10px; }
 .${CLASS.page} { white-space: pre-wrap; line-height: 1.5; font-size: 12.5px; opacity: 0.9; }
 .${CLASS.story} { display: flex; flex-direction: column; gap: 8px; }
 .${CLASS.back} {
@@ -236,6 +226,20 @@ window.__ModuleLoader__.load({
       if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
       return response.json()
     }
+
+    /** A knowledge-graph glyph: nodes and their descent edges. */
+    const GraphIcon = () => React.createElement('svg',
+      { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+        strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' },
+      React.createElement('circle', { cx: 5, cy: 6, r: 2.4 }),
+      React.createElement('circle', { cx: 19, cy: 6, r: 2.4 }),
+      React.createElement('circle', { cx: 12, cy: 13, r: 2.8 }),
+      React.createElement('circle', { cx: 5, cy: 20, r: 2.4 }),
+      React.createElement('circle', { cx: 19, cy: 20, r: 2.4 }),
+      React.createElement('path', { d: 'M6.6 7.9 10.3 11.3' }),
+      React.createElement('path', { d: 'M17.4 7.9 13.7 11.3' }),
+      React.createElement('path', { d: 'M10.4 15.4 6.3 18.2' }),
+      React.createElement('path', { d: 'M13.6 15.4 17.7 18.2' }))
 
     // --- small presentational helpers ---------------------------------------
 
@@ -285,77 +289,13 @@ window.__ModuleLoader__.load({
       return `${nodes.length} nodes · ${[...known, ...other].join(' · ')}`
     }
 
-    // --- the structural-analogs section --------------------------------------
-
-    /**
-     * Gentner structure-mapping in the UI: for this node, the nodes with the
-     * same RELATIONAL shape on a different surface. Loaded lazily because it
-     * is a whole-store comparison, and rendered with the shared structure
-     * spelled out — the analogy is the shared relations, not a score alone.
-     */
-    function AnalogsSection({ id, store, onOpen }) {
-      const [shown, setShown] = React.useState(false)
-      const [state, setState] = React.useState(null)
-
-      React.useEffect(() => {
-        if (!shown) return
-        let alive = true
-        setState({ loading: true })
-        getJson(`/analogs?id=${encodeURIComponent(id)}`, store)
-          .then((answer) => { if (alive) setState({ analogs: answer.analogs ?? [] }) })
-          .catch((error) => { if (alive) setState({ error: String(error.message ?? error) }) })
-        return () => { alive = false }
-      }, [shown, id, store])
-
-      if (!shown) {
-        return React.createElement('button', {
-          className: CLASS.back,
-          onClick: () => setShown(true),
-        }, 'find structural analogs →')
-      }
-      if (state === null || state.loading) {
-        return React.createElement('div', { className: CLASS.note }, 'comparing structures…')
-      }
-      if (state.error !== undefined) {
-        return React.createElement('div', { className: CLASS.note }, state.error)
-      }
-      const analogs = state.analogs ?? []
-      if (analogs.length === 0) {
-        return React.createElement('div', { className: CLASS.note },
-          'no analogs: nothing else shares this node’s relational shape')
-      }
-      return Section({ title: 'Structural analogs — same shape, different domain' },
-        analogs.map((analog) => React.createElement('div', {
-          key: analog.id,
-          className: CLASS.analog,
-          onClick: () => onOpen(analog.id),
-        },
-          React.createElement('div', { className: CLASS.analogHead },
-            React.createElement('b', null, analog.title || analog.id),
-            React.createElement('span', { className: CLASS.analogScore },
-              `structure ${Math.round(analog.structural * 100)}%`),
-          ),
-          React.createElement('div', { className: CLASS.cardMeta },
-            [analog.id, analog.kind, analog.track, analog.status, analog.verdict]
-              .filter(Boolean).join(' · ')),
-          React.createElement('div', { className: CLASS.badges },
-            ...analog.sharedStructure.slice(0, 8).map((token) =>
-              React.createElement('span', { key: token, className: CLASS.badge }, token)),
-            analog.sameTrack
-              ? React.createElement('span', {
-                  key: 'surface', className: CLASS.badge, 'data-tone': 'warn',
-                }, 'same track — topical, not structural')
-              : null),
-        )))
-    }
-
     // --- the node detail page -------------------------------------------------
 
     /**
      * One node, rendered from the structured record. Every section the
      * steering decision needs is its own block: the story, the registered
      * prediction and falsifier, the decision menu with what each choice
-     * implies, the measured outcome, and lineage links.
+     * implies, the measured outcome, lineage links, and structural analogs.
      */
     function NodeDetail({ id, store, titles, onOpen, onBack }) {
       const [state, setState] = React.useState({ loading: true })
@@ -450,7 +390,7 @@ window.__ModuleLoader__.load({
                     React.createElement('b', null, option),
                     React.createElement('div', { className: CLASS.menuArrow }, `→ ${consequence}`)))))
           : null,
-        AnalogsSection({ id, store, onOpen }),
+        React.createElement(AnalogsSection, { id, store, onOpen }),
         outcome.verdict || outcome.decision || outcome.reason
           ? Section({ title: 'Measured outcome' },
               React.createElement('div', { className: CLASS.story },
@@ -491,13 +431,78 @@ window.__ModuleLoader__.load({
       )
     }
 
-    // --- the drawer: board, frontier, filters ---------------------------------
+    // --- the structural-analogs section --------------------------------------
 
     /**
-     * The steering console. Board and frontier are two tabs over the same
-     * store; a card opens its node page in place.
+     * Gentner structure-mapping in the UI: for this node, the nodes with the
+     * same RELATIONAL shape on a different surface. Loaded lazily because it
+     * is a whole-store comparison, and rendered with the shared structure
+     * spelled out — the analogy is the shared relations, not a score alone.
      */
-    function Drawer({ onClose }) {
+    function AnalogsSection({ id, store, onOpen }) {
+      const [shown, setShown] = React.useState(false)
+      const [state, setState] = React.useState(null)
+
+      React.useEffect(() => {
+        if (!shown) return
+        let alive = true
+        setState({ loading: true })
+        getJson(`/analogs?id=${encodeURIComponent(id)}`, store)
+          .then((answer) => { if (alive) setState({ analogs: answer.analogs ?? [] }) })
+          .catch((error) => { if (alive) setState({ error: String(error.message ?? error) }) })
+        return () => { alive = false }
+      }, [shown, id, store])
+
+      if (!shown) {
+        return React.createElement('button', {
+          className: CLASS.back,
+          onClick: () => setShown(true),
+        }, 'find structural analogs →')
+      }
+      if (state === null || state.loading) {
+        return React.createElement('div', { className: CLASS.note }, 'comparing structures…')
+      }
+      if (state.error !== undefined) {
+        return React.createElement('div', { className: CLASS.note }, state.error)
+      }
+      const analogs = state.analogs ?? []
+      if (analogs.length === 0) {
+        return React.createElement('div', { className: CLASS.note },
+          'no analogs: nothing else shares this node’s relational shape')
+      }
+      return Section({ title: 'Structural analogs — same shape, different domain' },
+        analogs.map((analog) => React.createElement('div', {
+          key: analog.id,
+          className: CLASS.analog,
+          onClick: () => onOpen(analog.id),
+        },
+          React.createElement('div', { className: CLASS.analogHead },
+            React.createElement('b', null, analog.title || analog.id),
+            React.createElement('span', { className: CLASS.analogScore },
+              `structure ${Math.round(analog.structural * 100)}%`),
+          ),
+          React.createElement('div', { className: CLASS.cardMeta },
+            [analog.id, analog.kind, analog.track, analog.status, analog.verdict]
+              .filter(Boolean).join(' · ')),
+          React.createElement('div', { className: CLASS.badges },
+            ...analog.sharedStructure.slice(0, 8).map((token) =>
+              React.createElement('span', { key: token, className: CLASS.badge }, token)),
+            analog.sameTrack
+              ? React.createElement('span', {
+                  key: 'surface', className: CLASS.badge, 'data-tone': 'warn',
+                }, 'same track — topical, not structural')
+              : null),
+        )))
+    }
+
+    // --- the panel body: board, frontier, filters ------------------------------
+
+    /**
+     * The steering console, rendered inside the right pane's tab body.
+     * Board and frontier are two tabs over the same store; a card opens its
+     * node page in place.
+     */
+    function GraphPanel() {
       const [store, setStore] = React.useState('')
       const [tab, setTab] = React.useState('board')
       const [query, setQuery] = React.useState('')
@@ -545,7 +550,7 @@ window.__ModuleLoader__.load({
 
       const openNode = (id) => setSelected(id)
 
-      return React.createElement('div', { className: CLASS.drawer },
+      return React.createElement('div', { className: CLASS.panel },
         React.createElement('div', { className: CLASS.head },
           React.createElement('div', { className: CLASS.tabs },
             React.createElement('button', {
@@ -559,9 +564,7 @@ window.__ModuleLoader__.load({
               onClick: () => { setTab('frontier'); setSelected(null) },
             }, `Frontier (${frontier.length})`),
           ),
-          React.createElement('div', { className: CLASS.counts },
-            countsLine(nodes)),
-          React.createElement('button', { className: CLASS.close, onClick: onClose }, '✕'),
+          React.createElement('div', { className: CLASS.counts }, countsLine(nodes)),
         ),
         React.createElement('div', { className: CLASS.controls },
           React.createElement('input', {
@@ -625,36 +628,100 @@ window.__ModuleLoader__.load({
       )
     }
 
-    /** The tool-row control: a graph button that toggles the drawer. */
-    function KnowledgeDagButton() {
-      const [open, setOpen] = React.useState(false)
+    // --- the frame's top-right trigger ---------------------------------------
 
-      return React.createElement(React.Fragment, null,
-        React.createElement('div', { className: CLASS.root },
-          React.createElement('button', {
-            className: CLASS.button,
-            type: 'button',
-            title: 'Research graph — board, open frontier, and node pages',
-            'data-state': open ? 'open' : 'closed',
-            onClick: () => setOpen(!open),
-          }, 'graph'),
-        ),
-        open ? React.createElement(Drawer, { onClose: () => setOpen(false) }) : null,
+    /** Whether any open tab in the on-screen session is this kind. */
+    function useTabOpen(sidebarRight, kind) {
+      const [open, setOpen] = React.useState(
+        () => (sidebarRight.openTabs.getSnapshot() ?? []).some((tab) => tab.kind === kind))
+      React.useEffect(() => {
+        const sync = () => {
+          setOpen((sidebarRight.openTabs.getSnapshot() ?? []).some((tab) => tab.kind === kind))
+        }
+        const unsubscribe = sidebarRight.openTabs.subscribe(sync)
+        sync()
+        return unsubscribe
+      }, [sidebarRight, kind])
+      return open
+    }
+
+    /**
+     * The always-visible graph button, pinned above every column. One click
+     * opens the pane and the tab; a second click closes the pane. The state
+     * is read from the pane's own open-tab snapshot, so it survives reloads.
+     */
+    function TriggerButton({ sidebarRight, layout }) {
+      const open = useTabOpen(sidebarRight, KIND)
+      return React.createElement('div', { className: CLASS.trigger },
+        React.createElement('button', {
+          className: CLASS.triggerButton,
+          type: 'button',
+          title: open ? 'Hide the research graph' : 'Show the research graph',
+          'data-state': open ? 'open' : 'closed',
+          onClick: () => {
+            if (open) {
+              layout.closeRightbar()
+            } else {
+              sidebarRight.openTab(KIND)
+              layout.openRightbar(true, false)
+            }
+          },
+        }, React.createElement(GraphIcon)),
       )
     }
 
-    /** The only declared dependency: the slot registry. */
-    const inject = ['slots']
+    /** The only declared dependencies: real client services, never slots. */
+    const inject = ['slots', 'sidebarRight', 'sidebarRightTabs', 'layout']
 
-    /** Register the graph button for the life of this plugin fiber. */
+    /** Register the tab type, its body, and the frame trigger. */
     function apply(ctx) {
       const removeStyles = insertStyles()
       ctx.effect(() => removeStyles, 'knowledge-dag styles')
-      const slots = ctx.slots
-      slots.inject(SLOT, () => slots.register(
-        { name: SLOT, id: ENTRY_ID, order: 60, label: 'Knowledge graph' },
-        () => React.createElement(KnowledgeDagButton),
-      ))
+
+      // The tab type: exactly what the shipped terminal/files tabs
+      // register. The guide entry is the pane's "+" menu.
+      ctx.effect(() => ctx.sidebarRightTabs.register({
+        id: TYPE_ID,
+        kind: KIND,
+        multiple: false,
+        priority: 'extension',
+        title: () => 'Knowledge graph',
+        guide: [{
+          id: 'open',
+          order: 60,
+          title: () => 'Knowledge graph',
+          description: () => 'The research knowledge graph: board, open frontier, and node pages.',
+          icon: null,
+        }],
+      }), 'knowledge-dag.tab-type')
+
+      // The tab body: the panel, dispatched by the pane with the key KIND.
+      ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+        name: 'sidebar.right.pane.tab',
+        key: KIND,
+        locale: 'dsh-knowledge-dag',
+        inject: () => ({}),
+      }, GraphPanel)), 'knowledge-dag.tab-body')
+
+      // The tab's title chip.
+      ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
+        name: 'sidebar.right.pane.tab.title',
+        key: KIND,
+        locale: 'dsh-knowledge-dag',
+        inject: () => ({}),
+      }, () => React.createElement('span', null, 'Knowledge graph'))),
+        'knowledge-dag.tab-title')
+
+      // The frame trigger: one entry in the frame-wide floating layer,
+      // above every column and outside their scroll containers.
+      ctx.effect(() => ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+        id: 'knowledge-dag-trigger',
+        order: 80,
+        label: 'Knowledge graph',
+      }, () => React.createElement(TriggerButton, {
+        sidebarRight: ctx.sidebarRight,
+        layout: ctx.layout,
+      }))), 'knowledge-dag.trigger')
     }
 
     module.exports.inject = inject

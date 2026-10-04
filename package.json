@@ -1,8 +1,8 @@
 {
   "name": "dsh-knowledge-dag",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Show a research graph in the DeepSeek Harness: the questions, what they derive from, what they rest on and what they ended in, with a plain-English page per node. Generic over any node store, so the model's knowledge base can be a second source.",
-  "type": "module",
+  "author": "Moazzam Abdullah Khan (https://github.com/moazzamak)",
   "license": "MIT",
   "keywords": [
     "dsh",
@@ -14,6 +14,7 @@
     "dag",
     "research"
   ],
+  "type": "module",
   "main": "index.mjs",
   "exports": {
     ".": "./index.mjs",
@@ -25,8 +26,20 @@
     "index.mjs",
     "client.cjs",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moazzamak/dsh-knowledge-dag.git"
+  },
+  "homepage": "https://github.com/moazzamak/dsh-knowledge-dag#readme",
+  "bugs": {
+    "url": "https://github.com/moazzamak/dsh-knowledge-dag/issues"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

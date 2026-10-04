@@ -46,8 +46,19 @@ window.__ModuleLoader__.load({
 
     /** Host routes; must match index.mjs (the node id travels as a query). */
     const ROUTE = '/dsh-knowledge-dag'
-    /** The right-pane tab kind this bundle owns. */
+    /** The right-pane tab kind this bundle owns: what `openTab` names. */
     const KIND = 'knowledge-dag'
+    /**
+     * The tab type's identity, and — this is the part that bites — the KEY its
+     * body and title register under.
+     *
+     * The pane dispatches a tab's body with
+     * `renderSlot('sidebar.right.pane.tab', {}, { entryKey: definition.id ?? tab.kind })`,
+     * so the seat looks for the DEFINITION'S ID, not the kind. Registering the
+     * body under `KIND` finds no registrant and the pane draws its own
+     * "Nothing here can view this kind of content yet." — a tab that opens and
+     * a chip that titles itself, over an empty body.
+     */
     const TYPE_ID = 'dsh-knowledge-dag.graph'
 
     const CLASS = {
@@ -84,15 +95,38 @@ window.__ModuleLoader__.load({
       page: 'dsh-dag-page',
       story: 'dsh-dag-story',
       back: 'dsh-dag-back',
+      graph: 'dsh-dag-graph',
+      canvas: 'dsh-dag-canvas',
+      gnode: 'dsh-dag-gnode',
+      gnodeBox: 'dsh-dag-gnode-box',
+      gnodeDot: 'dsh-dag-gnode-dot',
+      gnodeTitle: 'dsh-dag-gnode-title',
+      gnodeMeta: 'dsh-dag-gnode-meta',
+      edge: 'dsh-dag-edge',
+      zoom: 'dsh-dag-zoom',
+      zoomButton: 'dsh-dag-zoom-button',
+      legend: 'dsh-dag-legend',
+      legendItem: 'dsh-dag-legend-item',
+      legendDot: 'dsh-dag-legend-dot',
     }
 
-    /** Status/verdict → tone, so the board can be read at a glance. */
+    /**
+     * Status/verdict → tone, so the board and the graph can be read at a
+     * glance. The vocabulary is open — a store names its own fates — so this
+     * maps the ones the research record uses and everything else stays neutral
+     * rather than being forced into a colour it does not mean.
+     */
     const TONES = {
-      open: 'warn', running: 'info',
-      adopted: 'good', confirmed: 'good', supported: 'good',
-      rejected: 'bad', falsified: 'bad', withdrawn: 'bad',
+      open: 'warn', parked: 'warn', queued: 'warn', blocked: 'warn',
+      running: 'info', active: 'info', measuring: 'info',
+      adopted: 'good', confirmed: 'good', supported: 'good', grounded: 'good',
+      settled: 'good', done: 'good', kept: 'good',
+      rejected: 'bad', falsified: 'bad', withdrawn: 'bad', killed: 'bad',
+      failed: 'bad', abandoned: 'bad',
     }
     const toneOf = (value) => TONES[String(value ?? '').toLowerCase()] ?? 'neutral'
+    /** Legend order: fates first, then live states, then everything else. */
+    const TONE_ORDER = ['good', 'bad', 'warn', 'info', 'neutral']
 
     const CSS = `
 .${CLASS.trigger} {
@@ -206,6 +240,66 @@ window.__ModuleLoader__.load({
   border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
 }
 .${CLASS.back}:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+
+/* The node-link view. Colors stay with the tones the board already uses, and
+   the shapes inherit currentColor, so both themes work without a second
+   palette. */
+.${CLASS.graph} { flex: 1; min-height: 0; position: relative; display: flex; }
+.${CLASS.canvas} {
+  flex: 1; min-height: 0; width: 100%; display: block;
+  cursor: grab; touch-action: none; user-select: none;
+}
+.${CLASS.canvas}[data-panning='true'] { cursor: grabbing; }
+.${CLASS.gnode} { cursor: pointer; }
+.${CLASS.gnodeBox} {
+  fill: color-mix(in srgb, currentColor 7%, transparent);
+  stroke: color-mix(in srgb, currentColor 26%, transparent);
+  stroke-width: 1;
+}
+.${CLASS.gnode}:hover .${CLASS.gnodeBox},
+.${CLASS.gnode}[data-hot='true'] .${CLASS.gnodeBox} {
+  stroke: color-mix(in srgb, currentColor 75%, transparent);
+  stroke-width: 1.7;
+}
+.${CLASS.gnode}[data-dim='true'] { opacity: 0.2; }
+.${CLASS.gnode}[data-dim='true'] .${CLASS.gnodeBox} { fill: transparent; }
+.${CLASS.gnodeTitle} { font-size: 12px; fill: currentColor; }
+.${CLASS.gnodeMeta} { font-size: 10px; fill: currentColor; opacity: 0.62; }
+.${CLASS.gnodeDot} { fill: currentColor; opacity: 0.5; }
+.${CLASS.gnode}[data-tone='good'] .${CLASS.gnodeDot} { fill: #46a758; opacity: 1; }
+.${CLASS.gnode}[data-tone='bad'] .${CLASS.gnodeDot} { fill: #e5484d; opacity: 1; }
+.${CLASS.gnode}[data-tone='warn'] .${CLASS.gnodeDot} { fill: #e5a34d; opacity: 1; }
+.${CLASS.gnode}[data-tone='info'] .${CLASS.gnodeDot} { fill: #6ca0ff; opacity: 1; }
+.${CLASS.edge} {
+  fill: none; stroke: color-mix(in srgb, currentColor 28%, transparent);
+  stroke-width: 1.2;
+}
+.${CLASS.edge}[data-cross='true'] { stroke-dasharray: 4 3; }
+.${CLASS.edge}[data-hot='true'] { stroke: currentColor; stroke-width: 1.8; opacity: 0.9; }
+.${CLASS.edge}[data-dim='true'] { opacity: 0.12; }
+.${CLASS.zoom} { position: absolute; right: 10px; top: 8px; display: inline-flex; gap: 4px; }
+.${CLASS.zoomButton} {
+  min-width: 24px; padding: 2px 7px; font-size: 11.5px; line-height: 1.4;
+  border-radius: 6px; color: inherit; cursor: pointer;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+}
+.${CLASS.zoomButton}:hover { background: color-mix(in srgb, currentColor 16%, transparent); }
+.${CLASS.legend} {
+  position: absolute; left: 10px; bottom: 10px; right: 10px;
+  display: flex; flex-wrap: wrap; gap: 10px; font-size: 10.5px; opacity: 0.85;
+  pointer-events: none;
+}
+.${CLASS.legendItem} { display: inline-flex; align-items: center; gap: 4px; }
+.${CLASS.legendItem}[data-tone='warn'] { color: #e5a34d; }
+.${CLASS.legendDot} {
+  width: 8px; height: 8px; border-radius: 999px; display: inline-block;
+  background: color-mix(in srgb, currentColor 45%, transparent);
+}
+.${CLASS.legendDot}[data-tone='good'] { background: #46a758; }
+.${CLASS.legendDot}[data-tone='bad'] { background: #e5484d; }
+.${CLASS.legendDot}[data-tone='warn'] { background: #e5a34d; }
+.${CLASS.legendDot}[data-tone='info'] { background: #6ca0ff; }
 `
 
     /** Install this bundle's stylesheet once per page. */
@@ -249,6 +343,12 @@ window.__ModuleLoader__.load({
         { className: CLASS.badge, 'data-tone': tone ?? 'neutral' }, String(value))
     }
 
+    /**
+     * A titled block. Deliberately a plain hookless render helper, called as a
+     * function at its use sites; anything with state or an effect is rendered
+     * with `React.createElement` instead, because a called component's hooks
+     * land on the CALLER's hook list.
+     */
     function Section({ title, children }) {
       return React.createElement('div', { className: CLASS.section },
         React.createElement('div', { className: CLASS.sectionTitle }, title),
@@ -495,16 +595,372 @@ window.__ModuleLoader__.load({
         )))
     }
 
+    // --- the record as a picture: a layered DAG --------------------------------
+
+    /** Node geometry in graph coordinates. One transform moves the whole picture. */
+    const NODE_W = 214
+    const NODE_H = 46
+    const GAP_X = 100
+    const GAP_Y = 16
+
+    const clamp = (value, low, high) => Math.min(high, Math.max(low, value))
+
+    /** One line of text for a node box, ellipsized to the width it has. */
+    function ellipsize(text, limit) {
+      const value = String(text ?? '')
+      return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`
+    }
+
+    /**
+     * A node's parent ids, always an array.
+     *
+     * `lineage` is the edge list, and a host half older than this bundle does
+     * not send it. Reading it as an empty list draws the nodes with no
+     * connections instead of throwing inside a React render, which is the
+     * difference between a stale half and a crashed pane.
+     */
+    const lineageOf = (node) => (Array.isArray(node.lineage) ? node.lineage : [])
+
+    /**
+     * Layered coordinates for the record.
+     *
+     * The record is a DAG — `lineage` is "derives from" — so this is the
+     * classic layered layout rather than a force simulation. A node's LAYER is
+     * the longest chain of parents beneath it, which puts every node to the
+     * right of everything it derives from and makes the arrows read left to
+     * right; two barycenter passes then order each layer by where its parents
+     * sit, which is what stops the edges from braiding.
+     *
+     * Deterministic on purpose: the same record draws the same picture, so a
+     * reader learns where a node lives instead of re-finding it on every load.
+     * Cycles are tolerated (depth stops at a repeated id) because a store is a
+     * file on disk, not a promise.
+     *
+     * @param nodes - `/graph` nodes, each with `lineage` parent ids.
+     * @returns positions, edges, and the bounds the picture occupies.
+     */
+    function layoutDag(nodes) {
+      const byId = new Map(nodes.map((node) => [node.id, node]))
+      const depths = new Map()
+      const depth = (id, seen) => {
+        if (depths.has(id)) return depths.get(id)
+        if (seen.has(id)) return 0
+        seen.add(id)
+        const node = byId.get(id)
+        let value = 0
+        if (node !== undefined) {
+          let best = 0
+          for (const parent of lineageOf(node)) best = Math.max(best, depth(parent, seen))
+          value = best + 1
+        }
+        seen.delete(id)
+        depths.set(id, value)
+        return value
+      }
+
+      const layers = []
+      for (const node of nodes) {
+        // `depth` counts a node with no parents as 1; layers are 0-based, so
+        // the first column is index 0. (Indexing by the raw depth would leave
+        // a hole at 0, and a `for…of` over a sparse array hands back
+        // `undefined` for it.)
+        const at = Math.max(0, depth(node.id, new Set()) - 1)
+        if (layers[at] === undefined) layers[at] = []
+        layers[at].push(node)
+      }
+      for (const layer of layers) {
+        layer.sort((left, right) => String(left.track ?? '')
+          .localeCompare(String(right.track ?? '')) || left.id.localeCompare(right.id))
+      }
+
+      const order = new Map()
+      const remember = () => {
+        layers.forEach((layer) => layer.forEach((node, at) => order.set(node.id, at)))
+      }
+      remember()
+      const barycenter = (node) => {
+        const parents = lineageOf(node)
+        if (parents.length === 0) return order.get(node.id) ?? 0
+        let sum = 0
+        for (const parent of parents) sum += order.get(parent) ?? 0
+        return sum / parents.length
+      }
+      for (let pass = 0; pass < 2; pass += 1) {
+        for (let at = 1; at < layers.length; at += 1) {
+          layers[at].sort((left, right) => barycenter(left) - barycenter(right)
+            || left.id.localeCompare(right.id))
+          remember()
+        }
+      }
+
+      const rows = Math.max(1, ...layers.map((layer) => layer.length))
+      const positions = new Map()
+      layers.forEach((layer, at) => {
+        const offset = ((rows - layer.length) * (NODE_H + GAP_Y)) / 2
+        layer.forEach((node, slot) => {
+          positions.set(node.id, {
+            x: at * (NODE_W + GAP_X),
+            y: offset + slot * (NODE_H + GAP_Y),
+          })
+        })
+      })
+
+      const edges = []
+      for (const node of nodes) {
+        for (const parent of lineageOf(node)) {
+          const from = positions.get(parent)
+          const to = positions.get(node.id)
+          if (from === undefined || to === undefined) continue
+          edges.push({
+            key: `${parent}->${node.id}`,
+            fromId: parent,
+            toId: node.id,
+            from,
+            to,
+            crossTrack: byId.get(parent)?.track !== node.track,
+          })
+        }
+      }
+
+      return {
+        positions,
+        edges,
+        width: Math.max(1, layers.length) * (NODE_W + GAP_X) + GAP_X,
+        height: rows * (NODE_H + GAP_Y) + GAP_Y,
+      }
+    }
+
+    /**
+     * The record drawn as a node-link graph.
+     *
+     * SVG and nothing else: a client bundle shares one module table (`react`),
+     * so a graph library would have to be vendored into this file, and a
+     * layered layout for a record this size is a hundred lines instead. Pan and
+     * zoom belong to the reader, not the layout — the picture is drawn once in
+     * graph coordinates and one transform moves it.
+     *
+     * Reading aids, in the order they matter: a node's tone is its status, a
+     * dashed edge crosses tracks (inheritance that is not topical), hovering
+     * lights the node's own edges, and the panel's filters dim the nodes they
+     * exclude instead of removing them, so the shape of the record survives the
+     * question "where is this one".
+     */
+    function GraphView({ nodes, layout, matches, onOpen }) {
+      const [view, setView] = React.useState({ k: 1, x: 0, y: 0 })
+      const [hot, setHot] = React.useState(null)
+      const [panning, setPanning] = React.useState(false)
+      const hostRef = React.useRef(null)
+      const drag = React.useRef(null)
+
+      const fit = React.useCallback(() => {
+        const host = hostRef.current
+        if (host === null) return
+        const width = host.clientWidth
+        const height = host.clientHeight
+        if (width === 0 || height === 0) return
+        const k = clamp(Math.min(width / layout.width, height / layout.height), 0.15, 1)
+        setView({ k, x: (width - layout.width * k) / 2, y: (height - layout.height * k) / 2 })
+      }, [layout.width, layout.height])
+
+      /**
+       * The opening frame: the top-left of the record at a readable scale.
+       *
+       * Fitting the WHOLE record is the wrong first view — a 120-node record is
+       * several thousand pixels wide, and shrinking it into a 600px pane renders
+       * 12px labels at two or three pixels, which is a map nobody can read.
+       * Fitting the height instead keeps the labels legible, and `fit` is one
+       * click away for the overview.
+       */
+      const reset = React.useCallback(() => {
+        const host = hostRef.current
+        if (host === null) return
+        const height = host.clientHeight
+        const k = height === 0 ? 1 : clamp((height - 28) / layout.height, 0.55, 1)
+        setView({ k, x: 16, y: 14 })
+      }, [layout.height])
+
+      // Wheel must zoom rather than scroll the pane, and React's wheel listener
+      // is passive by contract, so this binds a native one.
+      React.useEffect(() => {
+        const host = hostRef.current
+        if (host === null) return undefined
+        const onWheel = (event) => {
+          event.preventDefault()
+          const rect = host.getBoundingClientRect()
+          const px = event.clientX - rect.left
+          const py = event.clientY - rect.top
+          setView((current) => {
+            const k = clamp(current.k * (event.deltaY < 0 ? 1.15 : 1 / 1.15), 0.15, 2.6)
+            const ratio = k / current.k
+            return { k, x: px - (px - current.x) * ratio, y: py - (py - current.y) * ratio }
+          })
+        }
+        host.addEventListener('wheel', onWheel, { passive: false })
+        return () => { host.removeEventListener('wheel', onWheel) }
+      }, [])
+
+      // A new record means a new picture: frame it rather than inherit the last
+      // record's pan.
+      React.useEffect(() => { reset() }, [reset])
+
+      const neighbors = hot === null ? null : new Set([
+        hot,
+        ...(layout.edges.filter((edge) => edge.toId === hot).map((edge) => edge.fromId)),
+        ...(layout.edges.filter((edge) => edge.fromId === hot).map((edge) => edge.toId)),
+      ])
+
+      const onPointerDown = (event) => {
+        drag.current = { x: event.clientX, y: event.clientY, ox: view.x, oy: view.y }
+        setPanning(true)
+        event.currentTarget.setPointerCapture?.(event.pointerId)
+      }
+      const onPointerMove = (event) => {
+        const start = drag.current
+        if (start === null) return
+        setView((current) => ({
+          ...current,
+          x: start.ox + (event.clientX - start.x),
+          y: start.oy + (event.clientY - start.y),
+        }))
+      }
+      const onPointerUp = (event) => {
+        drag.current = null
+        setPanning(false)
+        event.currentTarget.releasePointerCapture?.(event.pointerId)
+      }
+
+      const zoomBy = (factor) => setView((current) => ({ ...current, k: clamp(current.k * factor, 0.15, 2.6) }))
+
+      /**
+       * A record with nodes and no edges at all.
+       *
+       * Two very different situations look identical on screen: a record whose
+       * nodes declare no derivation, and a HOST half older than this bundle
+       * (`/graph` served the compact board projection, which carries no
+       * lineage). The Host is re-imported only when the application starts, so
+       * the second case is what an updated plugin looks like until the next
+       * restart — and silently drawing isolated boxes made that look like a
+       * broken graph. Say which it is instead of guessing.
+       */
+      const edgeless = nodes.length > 0 && layout.edges.length === 0
+
+      // The legend is the STORE's vocabulary, not ours: whatever statuses this
+      // record actually uses, counted and ordered by tone. A fixed list would
+      // silently omit "killed" or "parked" while the picture showed them.
+      const statusCounts = new Map()
+      for (const node of nodes) {
+        const key = String(node.status ?? '?')
+        statusCounts.set(key, (statusCounts.get(key) ?? 0) + 1)
+      }
+      const legend = [...statusCounts.entries()]
+        .sort((left, right) => TONE_ORDER.indexOf(toneOf(left[0])) - TONE_ORDER.indexOf(toneOf(right[0]))
+          || right[1] - left[1] || left[0].localeCompare(right[0]))
+        .map(([label, count]) => React.createElement('span', {
+          key: label, className: CLASS.legendItem,
+        },
+          React.createElement('span', { className: CLASS.legendDot, 'data-tone': toneOf(label) }),
+          `${label} (${count})`))
+
+      return React.createElement('div', { className: CLASS.graph, ref: hostRef },
+        React.createElement('svg', {
+          className: CLASS.canvas,
+          'data-panning': panning ? 'true' : 'false',
+          onPointerDown,
+          onPointerMove,
+          onPointerUp,
+          onPointerCancel: onPointerUp,
+        },
+          React.createElement('defs', null,
+            React.createElement('marker', {
+              id: 'dsh-dag-arrow', viewBox: '0 0 8 8', refX: 7.5, refY: 4,
+              markerWidth: 6, markerHeight: 6, orient: 'auto',
+            }, React.createElement('path', { d: 'M0,0 L8,4 L0,8 z', fill: 'currentColor', opacity: 0.5 }))),
+          React.createElement('g', { transform: `translate(${view.x},${view.y}) scale(${view.k})` },
+            layout.edges.map((edge) => {
+              const x1 = edge.from.x + NODE_W
+              const y1 = edge.from.y + NODE_H / 2
+              const x2 = edge.to.x
+              const y2 = edge.to.y + NODE_H / 2
+              const bend = Math.max(30, (x2 - x1) / 2)
+              const lit = hot !== null && (edge.fromId === hot || edge.toId === hot)
+              return React.createElement('path', {
+                key: edge.key,
+                className: CLASS.edge,
+                'marker-end': 'url(#dsh-dag-arrow)',
+                'data-cross': edge.crossTrack ? 'true' : 'false',
+                'data-hot': lit ? 'true' : 'false',
+                'data-dim': hot !== null && !lit ? 'true' : 'false',
+                d: `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
+              })
+            }),
+            nodes.map((node) => {
+              const at = layout.positions.get(node.id)
+              if (at === undefined) return null
+              const lit = neighbors === null ? false : neighbors.has(node.id)
+              return React.createElement('g', {
+                key: node.id,
+                className: CLASS.gnode,
+                transform: `translate(${at.x},${at.y})`,
+                'data-tone': toneOf(node.status),
+                'data-hot': lit ? 'true' : 'false',
+                'data-dim': matches(node) ? 'false' : 'true',
+                onMouseEnter: () => setHot(node.id),
+                onMouseLeave: () => setHot(null),
+                onClick: () => onOpen(node.id),
+              },
+                React.createElement('title', null,
+                  `${node.title || node.id}\n${node.id} · ${node.kind ?? '?'} · ${node.status ?? '?'}` +
+                  `${node.verdict ? ` · ${node.verdict}` : ''}\n${lineageOf(node).length} parent(s)`),
+                React.createElement('rect', {
+                  className: CLASS.gnodeBox, width: NODE_W, height: NODE_H, rx: 8,
+                }),
+                React.createElement('circle', { className: CLASS.gnodeDot, cx: 13, cy: 15, r: 4 }),
+                React.createElement('text', { className: CLASS.gnodeTitle, x: 25, y: 19 },
+                  ellipsize(node.title || node.id, 29)),
+                React.createElement('text', { className: CLASS.gnodeMeta, x: 25, y: 34 },
+                  ellipsize(`${node.id} · ${node.status ?? '?'}`, 33)),
+              )
+            }),
+          ),
+        ),
+        React.createElement('div', { className: CLASS.zoom },
+          React.createElement('button', {
+            className: CLASS.zoomButton, type: 'button', title: 'Zoom in',
+            onClick: () => zoomBy(1.2),
+          }, '+'),
+          React.createElement('button', {
+            className: CLASS.zoomButton, type: 'button', title: 'Zoom out',
+            onClick: () => zoomBy(1 / 1.2),
+          }, '−'),
+          React.createElement('button', {
+            className: CLASS.zoomButton, type: 'button', title: 'Fit the whole record',
+            onClick: fit,
+          }, 'fit')),
+        React.createElement('div', { className: CLASS.legend },
+          legend,
+          edgeless
+            ? React.createElement('span', {
+                className: CLASS.legendItem, 'data-tone': 'warn',
+              }, 'no lineage edges: this record declares none, or the Host half is older than this bundle — restart the app')
+            : null,
+          React.createElement('span', { className: CLASS.legendItem }, '┄ crosses tracks'),
+          React.createElement('span', { className: CLASS.legendItem }, 'drag to pan · wheel to zoom · fit shows the whole record')),
+      )
+    }
+
     // --- the panel body: board, frontier, filters ------------------------------
 
     /**
      * The steering console, rendered inside the right pane's tab body.
-     * Board and frontier are two tabs over the same store; a card opens its
-     * node page in place.
+     *
+     * Three tabs over one store and one fetch: the GRAPH is the record's shape
+     * (what derives from what, where the open work sits), the Board is the same
+     * nodes as rows, and the Frontier is the steering list. Clicking a node —
+     * in any of them — opens its page in place.
      */
     function GraphPanel() {
       const [store, setStore] = React.useState('')
-      const [tab, setTab] = React.useState('board')
+      const [tab, setTab] = React.useState('graph')
       const [query, setQuery] = React.useState('')
       const [status, setStatus] = React.useState('')
       const [track, setTrack] = React.useState('')
@@ -526,6 +982,10 @@ window.__ModuleLoader__.load({
       const tracks = [...new Set(nodes.map((n) => n.track).filter(Boolean))].sort()
       const statuses = [...new Set(nodes.map((n) => n.status).filter(Boolean))].sort()
       const titles = new Map(nodes.map((n) => [n.id, n.title || n.id]))
+      // Keyed on the fetch, not on `nodes`: the array identity changes every
+      // render, and re-laying out the record on every keystroke would make the
+      // picture twitch while the reader types in the search box.
+      const layout = React.useMemo(() => layoutDag(nodes), [data.graph])
 
       const matches = (node) => {
         if (status !== '' && node.status !== status) return false
@@ -553,6 +1013,11 @@ window.__ModuleLoader__.load({
       return React.createElement('div', { className: CLASS.panel },
         React.createElement('div', { className: CLASS.head },
           React.createElement('div', { className: CLASS.tabs },
+            React.createElement('button', {
+              className: CLASS.tab,
+              'data-active': tab === 'graph',
+              onClick: () => { setTab('graph'); setSelected(null) },
+            }, 'Graph'),
             React.createElement('button', {
               className: CLASS.tab,
               'data-active': tab === 'board',
@@ -596,7 +1061,9 @@ window.__ModuleLoader__.load({
                 React.createElement('option', { value: '' }, 'research'),
                 names.map((n) => React.createElement('option', { key: n, value: n }, n)))
             : null,
-          tab === 'board' && (status !== '' || track !== '' || query !== '')
+          // The filters narrow the board rows and dim the graph's nodes; the
+          // frontier has its own idea of what matters and ignores them.
+          tab !== 'frontier' && (status !== '' || track !== '' || query !== '')
             ? React.createElement('button', {
                 className: CLASS.tab,
                 onClick: () => { setStatus(''); setTrack(''); setQuery('') },
@@ -609,39 +1076,72 @@ window.__ModuleLoader__.load({
             ? React.createElement('div', { className: CLASS.note },
                 `the graph is unavailable: ${data.error}. The host half serves ${ROUTE}/graph.`)
             : selected !== null
-              ? NodeDetail({
+              // As an ELEMENT, never as a call: `NodeDetail` holds state and an
+              // effect, and calling it would append those hooks to GraphPanel's
+              // own list the moment a card is opened — React then throws #310
+              // ("rendered more hooks than during the previous render") and the
+              // pane's slot entry crashes, which is what a click on any board
+              // card used to do.
+              ? React.createElement(NodeDetail, {
                   id: selected, store, titles,
                   onOpen: openNode,
                   onBack: () => setSelected(null),
                 })
-              : React.createElement('div', { className: CLASS.list },
-                  tab === 'board'
-                    ? (boardList.length === 0
-                        ? React.createElement('div', { className: CLASS.note }, 'no nodes match')
-                        : boardList.map((node) => React.createElement(Card, {
-                            key: node.id, node, onOpen: openNode })))
-                    : (frontierList.length === 0
-                        ? React.createElement('div', { className: CLASS.note },
-                            'nothing is open or running — the frontier is clear')
-                        : frontierList.map((node) => React.createElement(Card, {
-                            key: node.id, node, rich: true, onOpen: openNode })))),
+              : tab === 'graph'
+                ? React.createElement(GraphView, {
+                    nodes, layout, matches, onOpen: openNode,
+                  })
+                : React.createElement('div', { className: CLASS.list },
+                    tab === 'board'
+                      ? (boardList.length === 0
+                          ? React.createElement('div', { className: CLASS.note }, 'no nodes match')
+                          : boardList.map((node) => React.createElement(Card, {
+                              key: node.id, node, onOpen: openNode })))
+                      : (frontierList.length === 0
+                          ? React.createElement('div', { className: CLASS.note },
+                              'nothing is open or running — the frontier is clear')
+                          : frontierList.map((node) => React.createElement(Card, {
+                              key: node.id, node, rich: true, onOpen: openNode })))),
       )
     }
 
     // --- the frame's top-right trigger ---------------------------------------
 
-    /** Whether any open tab in the on-screen session is this kind. */
+    /**
+     * Whether the ON-SCREEN session holds a tab of this kind.
+     *
+     * `openTabs` is not this session's tab list: it is the pane's inventory of
+     * saved and adopted layouts, flattened across every session, so a record
+     * there carries the `sessionId` it belongs to. Asking it without naming the
+     * session answers "is this kind open anywhere", which reads as open in a
+     * session that never opened it — and the trigger's click would then close
+     * the column instead of opening the graph. The on-screen session comes from
+     * `mounted`; with none on screen nothing can be open, so the button offers
+     * to open rather than to close.
+     *
+     * Both sources are watched: the inventory changes when a tab opens or
+     * closes, and `mounted` changes when the reader switches sessions, which can
+     * change this answer without the inventory moving at all.
+     */
     function useTabOpen(sidebarRight, kind) {
-      const [open, setOpen] = React.useState(
-        () => (sidebarRight.openTabs.getSnapshot() ?? []).some((tab) => tab.kind === kind))
+      const mounted = sidebarRight.mounted
+      const read = React.useCallback(() => {
+        const sessionId = mounted === undefined ? undefined : mounted.getSnapshot()
+        if (sessionId === undefined) return false
+        return (sidebarRight.openTabs.getSnapshot() ?? []).some(
+          (tab) => tab.sessionId === sessionId && tab.kind === kind)
+      }, [sidebarRight, mounted, kind])
+      const [open, setOpen] = React.useState(read)
       React.useEffect(() => {
-        const sync = () => {
-          setOpen((sidebarRight.openTabs.getSnapshot() ?? []).some((tab) => tab.kind === kind))
-        }
-        const unsubscribe = sidebarRight.openTabs.subscribe(sync)
+        const sync = () => { setOpen(read()) }
+        const stopTabs = sidebarRight.openTabs.subscribe(sync)
+        const stopMounted = mounted === undefined ? undefined : mounted.subscribe(sync)
         sync()
-        return unsubscribe
-      }, [sidebarRight, kind])
+        return () => {
+          stopTabs()
+          if (stopMounted !== undefined) stopMounted()
+        }
+      }, [read, sidebarRight, mounted])
       return open
     }
 
@@ -695,26 +1195,36 @@ window.__ModuleLoader__.load({
         }],
       }), 'knowledge-dag.tab-type')
 
-      // The tab body: the panel, dispatched by the pane with the key KIND.
+      // The tab body: the panel, dispatched by the pane with the definition's
+      // own id — see TYPE_ID. This bundle keeps its copy inline, so no locale
+      // namespace is bound; naming one that nothing registered would only make
+      // a later `t()` call answer with raw keys.
       ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
         name: 'sidebar.right.pane.tab',
-        key: KIND,
-        locale: 'dsh-knowledge-dag',
+        key: TYPE_ID,
         inject: () => ({}),
       }, GraphPanel)), 'knowledge-dag.tab-body')
 
       // The tab's title chip.
       ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
         name: 'sidebar.right.pane.tab.title',
-        key: KIND,
-        locale: 'dsh-knowledge-dag',
+        key: TYPE_ID,
         inject: () => ({}),
       }, () => React.createElement('span', null, 'Knowledge graph'))),
         'knowledge-dag.tab-title')
 
       // The frame trigger: one entry in the frame-wide floating layer,
       // above every column and outside their scroll containers.
+      //
+      // `name` is the registration's own address in the slot registry: it is
+      // what resolves the declaring entry and its declaration, and a
+      // registration without it throws `slot "undefined" is not declared`
+      // while `apply` runs. That throw fails this entry's fiber, which the
+      // browser's boot audit reports as "did not activate" and the desktop
+      // application treats as a failed startup — the tab body and the title
+      // below name themselves; this one has to as well.
       ctx.effect(() => ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+        name: 'shell.overlay',
         id: 'knowledge-dag-trigger',
         order: 80,
         label: 'Knowledge graph',

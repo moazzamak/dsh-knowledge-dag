@@ -58,12 +58,30 @@ const ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/i
  * knowledge base is read the way the research record is rather than
  * through a second tool. The default store stays what it was, so a profile
  * that configures nothing behaves as before.
+ *
+ * `workspace` is the base a RELATIVE `store`/`pages` resolves against. The fs
+ * backend resolves a relative path from the host process's working directory
+ * (`Context.cwd` in `dsh-fs-local`, defaulting to `process.cwd()`), which is
+ * the workspace only for a CLI launched from it: the Desktop application
+ * starts its host in the profile directory, so every relative store there
+ * answered `not found`. Naming the workspace makes the paths mean the same
+ * thing in both surfaces. Absolute `store`/`pages` values ignore it, and an
+ * empty `workspace` keeps the old process-directory behaviour.
  */
 export class StoreConfig {
   constructor(options = {}) {
     this.store = options.store ?? 'analysis/graph/nodes'
     this.pages = options.pages ?? 'analysis/nodes'
+    this.workspace = options.workspace ?? ''
     this.stores = options.stores ?? {}
+  }
+
+  /**
+   * The fs base directory for relative paths, if one is configured.
+   * @returns `{ cwd }` for `ctx.fs.resolve`, or an empty object.
+   */
+  base() {
+    return this.workspace === '' ? {} : { cwd: this.workspace }
   }
 
   /** The paths for a named store, or null when the name is unknown. */
@@ -114,6 +132,10 @@ export const Config = {
       }
       const store = text('store', 'analysis/graph/nodes')
       const pages = text('pages', 'analysis/nodes')
+      // Optional: the base directory a relative store resolves against. An
+      // absent value is legal (the fs backend's own process-directory
+      // default), so it is only rejected when present and not a string.
+      const workspace = text('workspace', '')
       const rawStores = input.stores
       let stores = {}
       if (rawStores !== undefined) {
@@ -133,7 +155,7 @@ export const Config = {
         }
       }
       if (issues.length > 0) return { issues }
-      return { value: { ...input, store, pages, stores } }
+      return { value: { ...input, store, pages, workspace, stores } }
     },
   },
 }
@@ -256,8 +278,8 @@ function describe() {
  * An entry may be a bare name or an object with a `name` field, so both
  * shapes are accepted rather than assuming one.
  */
-async function jsonEntries(ctx, dir) {
-  const resolved = await ctx.fs.resolve(dir)
+async function jsonEntries(ctx, config, dir) {
+  const resolved = await ctx.fs.resolve(dir, config.base())
   const entries = await ctx.fs.listDir(resolved)
   const names = []
   for (const entry of entries) {
@@ -267,18 +289,18 @@ async function jsonEntries(ctx, dir) {
   return names
 }
 
-async function readJson(ctx, path) {
-  const resolved = await ctx.fs.resolve(path)
+async function readJson(ctx, config, path) {
+  const resolved = await ctx.fs.resolve(path, config.base())
   return JSON.parse(await ctx.fs.readText(resolved))
 }
 
 async function loadNodes(ctx, config, name) {
   const where = config.pick(name)
   if (!where) return null
-  const names = await jsonEntries(ctx, where.store)
+  const names = await jsonEntries(ctx, config, where.store)
   const nodes = []
   for (const file of names) {
-    const node = await readJson(ctx, `${where.store}/${file}`)
+    const node = await readJson(ctx, config, `${where.store}/${file}`)
     // The store's files are named `<id>.json` and the node bodies carry no
     // `id` field of their own — the file stem IS the id, and the pages are
     // named after it too. Without this, every board entry would answer
@@ -293,7 +315,7 @@ async function loadNodes(ctx, config, name) {
 async function loadNode(ctx, config, name, id) {
   const where = config.pick(name)
   if (!where) return { noStore: true }
-  const node = await readJson(ctx, `${where.store}/${id}.json`)
+  const node = await readJson(ctx, config, `${where.store}/${id}.json`)
   return { node: { id, ...node } }
 }
 
@@ -331,6 +353,31 @@ function frontier(nodes) {
       decisionMenu: node.decision_menu ?? {},
       lineage: node.lineage ?? [],
     }))
+}
+
+/**
+ * The whole record as a graph: the board's fields plus the lineage EDGES a
+ * node-link view draws. `board` stays the compact projection the `list`
+ * operation answers with; this is what `/graph` serves, so the pane can draw
+ * one picture from one fetch.
+ *
+ * `lineage` is the node's parents — the things it derives from — which is the
+ * direction the arrows run. A parent that is not in the store is dropped
+ * rather than drawn as a stub: the view shows the record it read, and a
+ * dangling id has no box to point at.
+ */
+function dag(nodes) {
+  const known = new Set(nodes.map((node) => node.id))
+  return nodes.map((node) => ({
+    id: node.id,
+    kind: node.kind,
+    track: node.track,
+    status: node.status,
+    verdict: (node.outcome ?? {}).verdict ?? '',
+    title: oneLine(node),
+    lineage: (Array.isArray(node.lineage) ? node.lineage : [])
+      .filter((parent) => parent !== node.id && known.has(parent)),
+  }))
 }
 
 // ---------------------------------------------------------------------------
@@ -562,7 +609,9 @@ function registerRoute(ctx, config) {
         store: where.store,
         name: name || 'research',
         stores: Object.keys(config.stores),
-        nodes: board(nodes),
+        // With lineage: this one fetch feeds both the board list and the
+        // node-link view, so it carries the edges as well as the rows.
+        nodes: dag(nodes),
       })
     },
   }))
@@ -658,7 +707,7 @@ function registerRoute(ctx, config) {
       }
       let markdown = null
       try {
-        const page = await ctx.fs.resolve(`${where.pages}/${id}.md`)
+        const page = await ctx.fs.resolve(`${where.pages}/${id}.md`, config.base())
         markdown = await ctx.fs.readText(page)
       } catch {
         // A node without a page is still a node; the view degrades to the

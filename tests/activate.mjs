@@ -199,6 +199,19 @@ check('registers the tab body, the title, and the frame trigger',
   activated.slotRegistrations.length === 3,
   `got ${activated.slotRegistrations.map(entry => entry.seat).join(', ')}`)
 
+console.log('\nthe stylesheet is tagged the way the harness loader owns plugin styles')
+// The loader claims every sheet WITHOUT data-plugin for whichever plugin
+// materialises next, and deletes every sheet whose data-plugin equals an id when
+// that entry is replaced or pruned. A sheet carrying only a private data-… marker
+// is therefore taken by another plugin and deleted with it, which strips
+// `fill: none` from the graph's paths — they fill black — and the trigger's
+// styling. Both symptoms were reported from the running app.
+const sheet = activated.styleTags[0]
+check('the sheet names its owner', sheet?.dataset.plugin === 'dsh-knowledge-dag',
+  `got ${String(sheet?.dataset.plugin)}`)
+check('the sheet has a per-sheet identity', sheet?.dataset.pluginCss === 'dsh-knowledge-dag/styles',
+  `got ${String(sheet?.dataset.pluginCss)}`)
+
 console.log('\nregistration keys (the pane dispatches a body by the DEFINITION id)')
 const body = activated.slotRegistrations.find(entry => entry.seat === 'sidebar.right.pane.tab')
 const title = activated.slotRegistrations.find(entry => entry.seat === 'sidebar.right.pane.tab.title')

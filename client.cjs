@@ -129,8 +129,11 @@ window.__ModuleLoader__.load({
     const TONE_ORDER = ['good', 'bad', 'warn', 'info', 'neutral']
 
     const CSS = `
+/* The trigger sits in the frame's own overlay seat, in the window's control row.
+   It is NOT position:fixed at the top right: that end of the row belongs to the
+   window controls, so a fixed trigger is painted underneath them and cannot be
+   clicked. */
 .${CLASS.trigger} {
-  position: fixed; top: 8px; right: 12px; z-index: 70;
   display: inline-flex; align-items: center; gap: 6px;
 }
 .${CLASS.triggerButton} {
@@ -302,9 +305,31 @@ window.__ModuleLoader__.load({
 .${CLASS.legendDot}[data-tone='info'] { background: #6ca0ff; }
 `
 
-    /** Install this bundle's stylesheet once per page. */
+    /**
+     * Install this bundle's stylesheet once per page.
+     *
+     * `data-plugin` is not decoration: the harness client loader owns plugin
+     * styles by it. `claimStyles` marks every style tag that LACKS it as
+     * belonging to whichever plugin materialises next, and `removeOwnedStyles`
+     * deletes every tag whose `data-plugin` equals an id when that entry is
+     * replaced or pruned. A sheet carrying only a private `data-…` marker
+     * therefore looks untagged to the loader: another plugin takes ownership,
+     * and that plugin's first refresh or prune deletes this one's sheet. The
+     * sheet is injected while `apply` runs, which is after the loader's claim
+     * pass, so this plugin's own claim never sees it either. Losing the sheet is
+     * not subtle — an SVG <path> with no `fill: none` fills black, so the graph
+     * draws as black shapes, and buttons fall back to the browser default.
+     * `data-plugin-css` is the loader's per-sheet identity and this bundle's
+     * duplicate guard.
+     */
+    const STYLE_OWNER = 'dsh-knowledge-dag'
+    const STYLE_KEY = `${STYLE_OWNER}/styles`
+
     function insertStyles() {
+      if (document.querySelector(`style[data-plugin-css="${STYLE_KEY}"]`) !== null) return () => {}
       const tag = document.createElement('style')
+      tag.dataset.plugin = STYLE_OWNER
+      tag.dataset.pluginCss = STYLE_KEY
       tag.dataset.dshKnowledgeDag = 'true'
       tag.textContent = CSS
       document.head.append(tag)

@@ -10,6 +10,33 @@ first public release.
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-10-06
+
+### Fixed
+
+- **The stylesheet is now owned by this plugin, which is what keeps it applied.**
+  The harness client loader owns plugin styles by the `data-plugin` attribute:
+  it claims every `<style>` that lacks it for whichever plugin materialises
+  next, and deletes every `<style>` whose `data-plugin` equals an id when that
+  entry is replaced or pruned. The sheet carried only a private
+  `data-dsh-knowledge-dag` marker, so it looked unowned to the loader — another
+  plugin took it and the first refresh or prune of that plugin deleted it. The
+  sheet is injected while `apply` runs, which is after the loader's claim pass,
+  so this plugin's own claim never saw it either. Losing it is silent and
+  severe: an SVG `<path>` with no `fill: none` fills black, so the graph drew as
+  black shapes, and buttons fell back to the browser's default control. The sheet
+  now carries `data-plugin` and `data-plugin-css`, and a second `apply` no longer
+  stacks a duplicate.
+- The frame trigger no longer positions itself with `position: fixed` at the top
+  right, where the window controls (minimise/maximise/close) are painted over it
+  and it cannot be clicked. It sits in the frame's overlay seat as a normal icon
+  button of that row.
+
+### Added
+
+- `tests/activate.mjs` now asserts the ownership tagging, so the sheet cannot
+  silently become unowned again.
+
 ## [0.6.0] — 2026-10-04
 
 First public release: the plugin is installable from GitHub, carries a license,
@@ -95,5 +122,6 @@ and ships the gate that proves its browser half still activates.
 - The research-graph viewer plugin for DeepSeek Harness: a node store read from
   the host, a tab in the right pane, and the `knowledge_dag` tool.
 
-[Unreleased]: https://github.com/moazzamak/dsh-knowledge-dag/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/moazzamak/dsh-knowledge-dag/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/moazzamak/dsh-knowledge-dag/releases/tag/v0.6.1
 [0.6.0]: https://github.com/moazzamak/dsh-knowledge-dag/releases/tag/v0.6.0

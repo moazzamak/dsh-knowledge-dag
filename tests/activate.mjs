@@ -66,7 +66,11 @@ const React = requireFromCheckout('react')
 const { renderToStaticMarkup } = requireFromCheckout('react-dom/server')
 
 /** Seats of the 0.2.0 slot catalog this bundle registers into. */
-const DECLARED_SEATS = new Set(['shell.overlay', 'sidebar.right.pane.tab', 'sidebar.right.pane.tab.title'])
+const DECLARED_SEATS = new Set([
+  'conversation.session.header.actions',
+  'sidebar.right.pane.tab',
+  'sidebar.right.pane.tab.title',
+])
 
 /** The 0.2.0 tab registry's default band and its coexist rule. */
 const DEFAULT_BAND = 'extension'
@@ -176,8 +180,8 @@ function activate({ openTabs, mountedSession }) {
 /** The rendered trigger markup for one open-tab state. */
 function renderTrigger(records, mountedSession) {
   const { slotRegistrations } = activate({ openTabs: records, mountedSession })
-  const trigger = slotRegistrations.find(entry => entry.seat === 'shell.overlay')
-  if (trigger === undefined) throw new Error('the bundle registered no shell.overlay entry')
+  const trigger = slotRegistrations.find(entry => entry.seat === 'conversation.session.header.actions')
+  if (trigger === undefined) throw new Error('the bundle registered no session-header action entry')
   return renderToStaticMarkup(React.createElement(trigger.Component, { sessionId: 'probe' }))
 }
 
@@ -195,9 +199,16 @@ check('declares the four services it binds',
   `got ${JSON.stringify(activated.exports.inject)}`)
 check('injects its stylesheet once', activated.styleTags.length === 1)
 check('registers the tab type', activated.tabTypes.has('dsh-knowledge-dag.graph'))
-check('registers the tab body, the title, and the frame trigger',
+check('registers the tab body, the title, and the header action',
   activated.slotRegistrations.length === 3,
   `got ${activated.slotRegistrations.map(entry => entry.seat).join(', ')}`)
+// `shell.overlay` is a frame-wide floating layer for badges, toasts and status
+// pills, and it is click-through by design. A BUTTON registered there is drawn in
+// the window's top-left, beside the application menus and the sidebar's reopen
+// control, and cannot be clicked. Reported from the running app; this is the
+// check that keeps it out.
+check('registers nothing in the click-through shell.overlay layer',
+  !activated.slotRegistrations.some(entry => entry.seat === 'shell.overlay'))
 
 console.log('\nthe stylesheet is tagged the way the harness loader owns plugin styles')
 // The loader claims every sheet WITHOUT data-plugin for whichever plugin
@@ -230,7 +241,7 @@ for (const entry of activated.slotRegistrations) {
   check(`renders ${entry.seat}`, markup.length > 0, 'rendered nothing')
 }
 
-console.log('\nthe frame trigger reads the ON-SCREEN session, not any session')
+console.log('\nthe header action reads the ON-SCREEN session, not any session')
 const openHere = renderTrigger([record('probe', 'knowledge-dag')], 'probe')
 check('open when this session has the tab open', openHere.includes('data-state="open"'), openHere.slice(0, 160))
 const openElsewhere = renderTrigger([record('another-session', 'knowledge-dag')], 'probe')
@@ -240,6 +251,9 @@ const otherKind = renderTrigger([record('probe', 'files')], 'probe')
 check('closed when this session has a different kind open', otherKind.includes('data-state="closed"'))
 const noSession = renderTrigger([record('probe', 'knowledge-dag')], undefined)
 check('closed when no session is on screen', noSession.includes('data-state="closed"'))
+// The row's controls are icon-only, so each one has to name itself.
+check('the icon-only action carries an accessible name',
+  openHere.includes('aria-label="Knowledge graph"'), openHere.slice(0, 160))
 
 console.log('')
 if (failures.length > 0) {

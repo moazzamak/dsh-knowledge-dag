@@ -10,6 +10,25 @@ first public release.
 
 ## [Unreleased]
 
+## [0.6.2] — 2026-10-06
+
+### Fixed
+
+- **The trigger moved out of the click-through overlay layer into the session
+  header's action row.** It was registered in `shell.overlay`, which the slot
+  catalog describes as a frame-wide floating layer for badges, toasts and status
+  pills, and which is click-through on purpose so an overlay never blocks the app
+  beneath it. A button there is in the wrong place twice over: it is drawn in the
+  window's top-left, beside the application menus and the sidebar's reopen
+  control, and it cannot be clicked unless it opts back into pointer events. It
+  now registers in `conversation.session.header.actions`, the title-adjacent row
+  where the shipped jobs, subagent, agent-preset and agent-team controls live, and
+  it copies their metrics: borderless, transparent, at least 28px, tertiary label
+  colour at rest and secondary on hover. The icon also carries `aria-label`, since
+  every control in that row is icon-only. `tests/activate.mjs` now asserts that the
+  trigger is in that row, that nothing of this plugin is registered in
+  `shell.overlay`, and that the action names itself.
+
 ## [0.6.1] — 2026-10-06
 
 ### Fixed
@@ -122,6 +141,7 @@ and ships the gate that proves its browser half still activates.
 - The research-graph viewer plugin for DeepSeek Harness: a node store read from
   the host, a tab in the right pane, and the `knowledge_dag` tool.
 
-[Unreleased]: https://github.com/moazzamak/dsh-knowledge-dag/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/moazzamak/dsh-knowledge-dag/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/moazzamak/dsh-knowledge-dag/releases/tag/v0.6.2
 [0.6.1]: https://github.com/moazzamak/dsh-knowledge-dag/releases/tag/v0.6.1
 [0.6.0]: https://github.com/moazzamak/dsh-knowledge-dag/releases/tag/v0.6.0

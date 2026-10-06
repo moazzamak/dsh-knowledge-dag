@@ -7,8 +7,9 @@
  * shipped tabs use (`sidebarRightTabs`), so it gets a strip chip, a title,
  * and the pane's own chrome. Two ways to open it:
  *
- *   - a graph icon pinned to the TOP-RIGHT of the frame (a `shell.overlay`
- *     entry, above every column), which opens the tab in one click;
+ *   - a graph icon in the session header's ACTION ROW (the
+ *     `conversation.session.header.actions` seat, beside the shipped jobs and
+ *     subagent controls), which opens the tab in one click;
  *   - the pane's "+" guide menu lists "Knowledge graph".
  *
  * The panel itself: the BOARD (every node with kind/track/status/verdict,
@@ -60,6 +61,20 @@ window.__ModuleLoader__.load({
      * a chip that titles itself, over an empty body.
      */
     const TYPE_ID = 'dsh-knowledge-dag.graph'
+
+    /**
+     * The seat the one-click trigger registers in: the session header's
+     * title-adjacent action row, where the shipped jobs, subagent, agent-preset
+     * and agent-team controls live.
+     *
+     * It is deliberately NOT `shell.overlay`. That seat is a frame-wide floating
+     * layer for badges, toasts and status pills, and it is click-through by
+     * design, so a BUTTON registered there is both in the wrong place (the
+     * window's top-left, beside the application menus and the sidebar's reopen
+     * control) and unclickable unless it opts back into pointer events. An
+     * action belongs in an action row.
+     */
+    const TRIGGER_SLOT = 'conversation.session.header.actions'
 
     const CLASS = {
       trigger: 'dsh-dag-trigger',
@@ -129,21 +144,25 @@ window.__ModuleLoader__.load({
     const TONE_ORDER = ['good', 'bad', 'warn', 'info', 'neutral']
 
     const CSS = `
-/* The trigger sits in the frame's own overlay seat, in the window's control row.
-   It is NOT position:fixed at the top right: that end of the row belongs to the
-   window controls, so a fixed trigger is painted underneath them and cannot be
-   clicked. */
+/* The trigger is one entry in the session header's action row, beside the
+   shipped jobs and subagent controls, so its metrics are theirs: a borderless
+   transparent button of at least 28px, tertiary label colour at rest and
+   secondary on hover, which is what makes the row read as one set of controls
+   rather than a foreign object dropped into it. */
 .${CLASS.trigger} {
   display: inline-flex; align-items: center; gap: 6px;
 }
 .${CLASS.triggerButton} {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; padding: 0; border-radius: 8px;
-  background: color-mix(in srgb, currentColor 8%, transparent);
-  color: inherit; opacity: 0.75; cursor: pointer;
-  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  min-width: 28px; min-height: 28px; padding: 3px 4px; cursor: pointer;
+  border: 0; border-radius: var(--dsw-radius-sm, 6px); background: 0 0;
+  color: var(--dsw-alias-label-tertiary, #8a8a8a);
 }
-.${CLASS.triggerButton}:hover { opacity: 1; background: color-mix(in srgb, currentColor 15%, transparent); }
+.${CLASS.triggerButton}:hover, .${CLASS.triggerButton}:focus-visible {
+  background: var(--dsw-alias-fill-l1, rgba(255, 255, 255, 0.06));
+  color: var(--dsw-alias-label-secondary, #b0b0b0);
+}
+.${CLASS.triggerButton}[data-state='open'] { color: var(--dsw-alias-brand-primary, #4d6bfe); }
 .${CLASS.triggerButton} svg { width: 17px; height: 17px; }
 .${CLASS.panel} {
   display: flex; flex-direction: column; height: 100%; min-height: 0;
@@ -1130,7 +1149,7 @@ window.__ModuleLoader__.load({
       )
     }
 
-    // --- the frame's top-right trigger ---------------------------------------
+    // --- the session header's action row ------------------------------------
 
     /**
      * Whether the ON-SCREEN session holds a tab of this kind.
@@ -1182,6 +1201,7 @@ window.__ModuleLoader__.load({
           className: CLASS.triggerButton,
           type: 'button',
           title: open ? 'Hide the research graph' : 'Show the research graph',
+          'aria-label': 'Knowledge graph',
           'data-state': open ? 'open' : 'closed',
           onClick: () => {
             if (open) {
@@ -1198,7 +1218,7 @@ window.__ModuleLoader__.load({
     /** The only declared dependencies: real client services, never slots. */
     const inject = ['slots', 'sidebarRight', 'sidebarRightTabs', 'layout']
 
-    /** Register the tab type, its body, and the frame trigger. */
+    /** Register the tab type, its body, and the session header action. */
     function apply(ctx) {
       const removeStyles = insertStyles()
       ctx.effect(() => removeStyles, 'knowledge-dag styles')
@@ -1238,8 +1258,10 @@ window.__ModuleLoader__.load({
       }, () => React.createElement('span', null, 'Knowledge graph'))),
         'knowledge-dag.tab-title')
 
-      // The frame trigger: one entry in the frame-wide floating layer,
-      // above every column and outside their scroll containers.
+      // The trigger: one entry in the session header's action row, in the same
+      // row as the shipped jobs and subagent controls. NOT `shell.overlay`, which
+      // is a click-through floating layer for badges and toasts and puts a button
+      // in the window's top-left where it cannot be clicked.
       //
       // `name` is the registration's own address in the slot registry: it is
       // what resolves the declaring entry and its declaration, and a
@@ -1248,10 +1270,10 @@ window.__ModuleLoader__.load({
       // browser's boot audit reports as "did not activate" and the desktop
       // application treats as a failed startup — the tab body and the title
       // below name themselves; this one has to as well.
-      ctx.effect(() => ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-        name: 'shell.overlay',
+      ctx.effect(() => ctx.slots.inject(TRIGGER_SLOT, () => ctx.slots.register({
+        name: TRIGGER_SLOT,
         id: 'knowledge-dag-trigger',
-        order: 80,
+        order: 60,
         label: 'Knowledge graph',
       }, () => React.createElement(TriggerButton, {
         sidebarRight: ctx.sidebarRight,

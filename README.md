@@ -57,11 +57,11 @@ to boot. The installed copy is read from
 
 ### In the browser
 
-- **A frame trigger.** A graph button pinned to the top right of the frame
-  (`shell.overlay`, above every column). One click opens the pane and the
-  tab, a second closes the pane. Its state is read from the pane's open-tab
-  inventory for the on-screen session, so it survives reloads and does not
-  read as open in a session that never opened it.
+- **A header action.** A graph button in the session header's action row, beside
+  the shipped jobs and subagent controls (`conversation.session.header.actions`).
+  One click opens the pane and the tab, a second closes the pane. Its state is
+  read from the pane's open-tab inventory for the on-screen session, so it
+  survives reloads and does not read as open in a session that never opened it.
 - **A guide entry.** The pane's "+" menu lists "Knowledge graph", through
   the same tab registration the shipped Files and Terminal tabs use
   (`sidebarRightTabs`, kind `knowledge-dag`).
@@ -226,8 +226,8 @@ harness boot audit reporting that this entry did not activate.
 `tests/activate.mjs` is the gate that catches it without the application.
 It evaluates the real `client.cjs`, calls `apply` over service fakes that
 enforce the 0.2.0 registry rules, renders every registration once, and
-checks that the frame trigger reads the **on-screen** session rather than
-any session:
+checks that the header action reads the **on-screen** session rather than
+any session, and that the icon-only action names itself:
 
 ```
 node tests/activate.mjs
@@ -265,6 +265,6 @@ window.__ModuleLoader__.load({ id, factory })
 
 It declares the services it binds (`slots`, `sidebarRight`,
 `sidebarRightTabs`, `layout`) and registers the tab type, the tab body, the
-title chip and the frame trigger. Node bodies and pages are fetched from
+title chip and the session header action. Node bodies and pages are fetched from
 the host half rather than rebuilt here, so the view cannot disagree with
 the file a reader trusts.
